@@ -1,0 +1,36 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# Runtime data (channels, SQLite DBs, agent memory, workspaces)
+# Templates live in channels/templates/ (project-level, NOT ignored)
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local Claude Code / agent scratch files (must never be committed)
+.claude/settings.local.json
+tmpclaude-*-cwd
+.codebuddy/

@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Claude Tag Lark</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #FBFBFA;
+  --surface: #FFFFFF;
+  --surface-2: #F7F6F3;
+  --ink: #111111;
+  --ink-2: #2F3437;
+  --ink-dim: #787774;
+  --border: #EAEAEA;
+  --border-2: rgba(0,0,0,0.06);
+  --accent: #111111;
+  --red-bg: #FDEBEC; --red-tx: #9F2F2D;
+  --blue-bg: #E1F3FE; --blue-tx: #1F6C9F;
+  --green-bg: #EDF3EC; --green-tx: #346538;
+  --amber-bg: #FBF3DB; --amber-tx: #956400;
+  --font-body: 'Geist', 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  --font-display: 'Newsreader', serif;
+  --font-mono: 'Geist Mono', 'SF Mono', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { overflow-x: hidden; }
+body { font-family: var(--font-body); background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; line-height: 1.6; }
+#root { position: relative; z-index: 1; }
+
+/* Header */
+.header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-name { font-family: var(--font-display); font-size: 1.3rem; font-weight: 500; letter-spacing: -0.02em; line-height: 1; }
+.brand-sub { font-family: var(--font-mono); font-size: 0.65rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
+.header-meta { font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-dim); display: flex; align-items: center; gap: 8px; }
+.live { width: 6px; height: 6px; border-radius: 50%; background: #346538; display: inline-block; }
+
+/* Tabs */
+.tabs { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; }
+.tab { padding: 10px 16px; cursor: pointer; font-size: 0.82rem; font-weight: 500; color: var(--ink-dim); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; font-family: var(--font-body); }
+.tab:hover { color: var(--ink-2); }
+.tab.active { color: var(--ink); border-bottom-color: var(--ink); }
+
+/* Layout */
+.main { padding: 32px; max-width: 1400px; margin: 0 auto; }
+.row { display: flex; gap: 24px; }
+.col-side { width: 240px; flex-shrink: 0; }
+.col-main { flex: 1; min-width: 0; }
+
+/* Panel */
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+.panel-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.panel-title { font-family: var(--font-display); font-size: 1.05rem; font-weight: 500; letter-spacing: -0.01em; }
+.panel-body { padding: 12px 20px; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.stat-val { font-family: var(--font-display); font-size: 2rem; font-weight: 500; line-height: 1; letter-spacing: -0.03em; }
+.stat-lbl { font-family: var(--font-mono); font-size: 0.62rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 8px; }
+
+/* List item */
+.li { padding: 6px 10px; cursor: pointer; border-radius: 4px; font-size: 0.78rem; color: var(--ink-dim); transition: background 0.1s, color 0.1s; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li:hover { background: var(--surface-2); color: var(--ink-2); }
+.li.active { background: var(--surface-2); color: var(--ink); font-weight: 500; }
+
+/* Badge */
+.bdg { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 9999px; font-size: 0.62rem; font-weight: 500; font-family: var(--font-mono); letter-spacing: 0.03em; }
+.bdg-red { background: var(--red-bg); color: var(--red-tx); }
+.bdg-blue { background: var(--blue-bg); color: var(--blue-tx); }
+.bdg-green { background: var(--green-bg); color: var(--green-tx); }
+.bdg-amber { background: var(--amber-bg); color: var(--amber-tx); }
+.bdg-neutral { background: var(--surface-2); color: var(--ink-dim); }
+
+/* Dot */
+.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-active { background: #346538; }
+.dot-sleeping { background: #C0BCB6; }
+.dot-running { background: var(--amber-tx); animation: pulse 1.2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* Button */
+.btn { padding: 5px 14px; border-radius: 6px; font-size: 0.78rem; font-weight: 500; cursor: pointer; border: 1px solid var(--border); transition: background 0.15s; background: var(--surface); color: var(--ink-2); font-family: var(--font-body); }
+.btn:hover { background: var(--surface-2); }
+.btn-primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn-primary:hover { background: #333333; }
+.btn-danger { color: var(--red-tx); border-color: var(--red-bg); }
+.btn-danger:hover { background: var(--red-bg); }
+
+/* Code */
+pre.code { background: var(--surface-2); border: 1px solid var(--border); color: var(--ink-2); padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 0.78rem; line-height: 1.6; font-family: var(--font-mono); max-height: 360px; }
+
+/* Scroll */
+.scroll { max-height: 500px; overflow-y: auto; }
+.scroll::-webkit-scrollbar { width: 4px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Lang switcher */
+.lang-switch { display: flex; gap: 2px; background: var(--surface-2); border-radius: 4px; padding: 2px; }
+.lang-btn { padding: 2px 8px; border: none; border-radius: 3px; font-size: 0.68rem; cursor: pointer; background: transparent; color: var(--ink-dim); font-family: var(--font-mono); transition: all 0.1s; }
+.lang-btn.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+
+/* Kanban */
+.kanban { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.k-col { min-width: 200px; flex: 1; }
+.k-head { padding: 8px 12px; border-radius: 4px; margin-bottom: 8px; font-size: 0.72rem; font-weight: 600; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: space-between; }
+.k-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s; }
+.k-card:hover { border-color: var(--ink-dim); }
+
+/* Misc */
+.flex { display: flex; } .gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .gap-4 { gap: 16px; }
+.items-center { align-items: center; } .justify-between { justify-content: space-between; }
+.mb-4 { margin-bottom: 16px; } .mb-2 { margin-bottom: 8px; }
+.text-sm { font-size: 0.82rem; } .text-xs { font-size: 0.7rem; }
+.text-dim { color: var(--ink-dim); } .text-mono { font-family: var(--font-mono); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fade-in { animation: fadeIn 0.25s cubic-bezier(0.16,1,0.3,1); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.bdr-b { border-bottom: 1px solid var(--border); }
+.py-2 { padding-top: 8px; padding-bottom: 8px; }
+.hidden { display: none; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+@media (max-width: 768px) { .row { flex-direction: column; } .col-side { width: 100%; } .stats { grid-template-columns: repeat(2, 1fr); } .main { padding: 16px; } .kanban { flex-direction: column; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, createContext, useContext } = React;
+const api = { get: u => fetch(u).then(r => r.json()), post: (u,o) => fetch(u,{method:'POST',...o}).then(r => r.json()) };
+
+// ── i18n ──
+const I18N = {
+  zh: {
+    overview:'概览', kanban:'看板', ledger:'账本', files:'文件', diagnostics:'诊断',
+    channels:'频道', agent:'Agent', active:'活跃', in_progress:'进行中', done:'完成', tasks:'任务',
+    no_channels:'暂无频道', no_agents:'暂无 Agent', no_tasks:'暂无任务', no_records:'暂无记录', no_files:'暂无文件',
+    cancel:'取消', cancel_confirm:'取消 {n} ?', cancelled:'已取消 {n}',
+    move:'移动', all:'全部', running:'运行中', failed:'失败', cancelled_s:'取消', completed:'完成',
+    tools:'工具', stream:'stream', depth:'d{n}',
+    trigger_msg:'触发消息', tool_chain:'工具调用链', no_tool_calls:'无工具调用', final_output:'最终输出',
+    agent_l:'agent', status:'status', duration:'耗时', delegation_depth:'深度', upstream:'上游',
+    run_check:'运行', checking:'诊断中', check_done:'完成', click_to_check:'点击按钮开始诊断', system_diag:'系统诊断',
+    filter:'筛选', sec:'s', exec_records:'执行记录',
+    col_todo:'待办', col_in_progress:'进行中', col_in_review:'评审', col_done:'完成', col_closed:'关闭',
+    scopes:'scopes', live:'live',
+    control_panel:'控制台', ms:'毫秒', kb:'KB', mb:'MB',
+    st_todo:'待办', st_in_progress:'进行中', st_in_review:'评审中', st_done:'完成', st_closed:'关闭',
+    st_running:'运行中', st_completed:'完成', st_failed:'失败', st_cancelled:'已取消', st_pending:'待开始',
+  },
+  en: {
+    overview:'Overview', kanban:'Kanban', ledger:'Ledger', files:'Files', diagnostics:'Diagnostics',
+    channels:'Channels', agent:'Agent', active:'Active', in_progress:'In Progress', done:'Done', tasks:'Tasks',
+    no_channels:'No channels', no_agents:'No agents', no_tasks:'No tasks', no_records:'No records', no_files:'No files',
+    cancel:'Cancel', cancel_confirm:'Cancel {n}?', cancelled:'Cancelled {n}',
+    move:'Move', all:'All', running:'Running', failed:'Failed', cancelled_s:'Cancelled', completed:'Completed',
+    tools:'tools', stream:'stream', depth:'d{n}',
+    trigger_msg:'Trigger', tool_chain:'Tool Chain', no_tool_calls:'No tool calls', final_output:'Final Output',
+    agent_l:'agent', status:'status', duration:'Duration', delegation_depth:'Depth', upstream:'Upstream',
+    run_check:'Run', checking:'Checking', check_done:'Done', click_to_check:'Click to run diagnostics', system_diag:'System Diagnostics',
+    filter:'Filter', sec:'s', exec_records:'Execution Records',
+    col_todo:'Todo', col_in_progress:'In Progress', col_in_review:'In Review', col_done:'Done', col_closed:'Closed',
+    scopes:'scopes', live:'live',
+    control_panel:'Control Panel', ms:'ms', kb:'KB', mb:'MB',
+    st_todo:'Todo', st_in_progress:'In Progress', st_in_review:'In Review', st_done:'Done', st_closed:'Closed',
+    st_running:'Running', st_completed:'Completed', st_failed:'Failed', st_cancelled:'Cancelled', st_pending:'Pending',
+  },
+};
+const LangCtx = createContext('zh');
+const useT = () => { const lang = useContext(LangCtx); const d = I18N[lang]; return (k, vars) => { let s = d[k] || k; if (vars) for (const [k2,v] of Object.entries(vars)) s = s.replace('{'+k2+'}', v); return s; }; };
+const useST = () => { const t = useT(); return (st) => t('st_' + st) || st; };
+
+// Icons via createElement (no JSX-in-object issue)
+const Ico = ({ name, s = 14 }) => {
+  const paths = {
+    activity: 'M22 12h-4l-3 9L9 3l-3 9H2',
+    list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+    bot: 'M12 8V4H8M4 8H2M2 14h2M2 20h2M22 14h-2M22 20h-2M22 8h-6M14 12h6v10H4V12h6',
+    folder: 'M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z',
+    health: 'M22 12h-4l-3 9L9 3l-3 9H2',
+  };
+  return React.createElement('svg', {width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round'}, React.createElement('path', {d: paths[name] || ''}));
+};
+
+const Bdg = ({ children, cls = '' }) => React.createElement('span', {className: 'bdg ' + cls}, children);
+const Dot = ({ st }) => React.createElement('span', {className: 'dot dot-' + st});
+
+const TABS_DEF = [
+  {id: 'dashboard', label: 'overview', icon: 'activity'},
+  {id: 'kanban', label: 'kanban', icon: 'list'},
+  {id: 'ledger', label: 'ledger', icon: 'bot'},
+  {id: 'workspace', label: 'files', icon: 'folder'},
+  {id: 'health', label: 'diagnostics', icon: 'health'},
+];
+
+function Tabs({ tab, setTab, t }) {
+  return React.createElement('nav', {className: 'tabs'},
+    TABS_DEF.map(tb => React.createElement('div', {key: tb.id, className: 'tab ' + (tab === tb.id ? 'active' : ''), onClick: () => setTab(tb.id)}, Ico({name: tb.icon, s: 13}), ' ', t(tb.label)))
+  );
+}
+
+function Dashboard({ ch, chs, onCh }) {
+  const t = useT();
+  const st = useST();
+  const [agents, setA] = useState([]);
+  const [tasks, setT] = useState([]);
+  useEffect(() => { if (!ch) return; Promise.all([api.get('/api/channels/' + ch + '/agents'), api.get('/api/channels/' + ch + '/tasks')]).then(([a, t]) => { setA(a); setT(t); }); }, [ch]);
+  const cancel = async (ag) => { if (!confirm(t('cancel_confirm', {n: ag}))) return; const r = await api.post('/api/channels/' + ch + '/agents/' + ag + '/cancel', {method: 'POST'}); alert(t('cancelled', {n: r.cancelled})); };
+
+  return (
+    <div className="row">
+      <div className="col-side">
+        <div className="panel">
+          <div className="panel-head"><span className="panel-title">{t('channels')}</span><Bdg cls="bdg-neutral">{chs.length}</Bdg></div>
+          <div className="panel-body scroll" style={{maxHeight: '480px'}}>
+            {chs.map(c => <div key={c.id} className={'li ' + (ch === c.id ? 'active' : '')} onClick={() => onCh(c.id)} title={c.id}>{c.id.slice(0, 22)}</div>)}
+            {chs.length === 0 && <div className="text-dim text-sm" style={{padding: '8px'}}>{t('no_channels')}</div>}
+          </div>
+        </div>
+      </div>
+      <div className="col-main">
+        <div className="stats">
+          <div className="stat"><div className="stat-val">{agents.length}</div><div className="stat-lbl">{t('agent')}</div></div>
+          <div className="stat"><div className="stat-val">{agents.filter(a => a.state === 'active').length}</div><div className="stat-lbl">{t('active')}</div></div>
+          <div className="stat"><div className="stat-val">{tasks.filter(t => t.status === 'in_progress').length}</div><div className="stat-lbl">{t('in_progress')}</div></div>
+          <div className="stat"><div className="stat-val">{tasks.filter(t => t.status === 'done').length}</div><div className="stat-lbl">{t('done')}</div></div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-head"><span className="panel-title">{t('agent')}</span></div>
+          <div className="panel-body">
+            {agents.map(a => (
+              <div key={a.id} className="flex items-center justify-between py-2 bdr-b">
+                <div className="flex items-center gap-3">
+                  <Dot st={a.state} />
+                  <span style={{fontFamily: 'var(--font-display)', fontSize: '1rem', fontWeight: '500'}}>{a.display_name}</span>
+                  <span className="text-dim text-xs text-mono">{a.id}</span>
+                  {a.scopes && a.scopes.length > 0 && <Bdg cls="bdg-amber">{a.scopes.length} {t('scopes')}</Bdg>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-dim text-xs text-mono">{a.idle_timeout}{t('sec')}</span>
+                  <button className="btn btn-danger" onClick={() => cancel(a.id)}>{t('cancel')}</button>
+                </div>
+              </div>
+            ))}
+            {agents.length === 0 && <div className="text-dim text-sm" style={{padding: '8px'}}>{t('no_agents')}</div>}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-head"><span className="panel-title">{t('tasks')}</span></div>
+          <div className="panel-body">
+            {tasks.slice(0, 10).map(t2 => (
+              <div key={t2.id} className="flex items-center justify-between py-2 bdr-b">
+                <div className="flex items-center gap-3">
+                  <span className="text-dim text-xs text-mono">#{t2.id}</span>
+                  <span className="text-sm">{t2.title}</span>
+                  <Bdg cls={'bdg-' + (t2.priority === 'P1' ? 'red' : t2.priority === 'P2' ? 'amber' : 'green')}>{t2.priority}</Bdg>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Bdg cls="bdg-neutral">{st(t2.status)}</Bdg>
+                  <span className="text-dim text-xs text-mono">@{t2.assignee || '-'}</span>
+                </div>
+              </div>
+            ))}
+            {tasks.length === 0 && <div className="text-dim text-sm" style={{padding: '8px'}}>{t('no_tasks')}</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Kanban({ ch, chs, onCh }) {
+  const t = useT();
+  const [tasks, setT2] = useState([]);
+  const COLS = [
+    {id: 'todo', l: 'col_todo', c: '#F7F6F3'},
+    {id: 'in_progress', l: 'col_in_progress', c: '#E1F3FE'},
+    {id: 'in_review', l: 'col_in_review', c: '#FBF3DB'},
+    {id: 'done', l: 'col_done', c: '#EDF3EC'},
+    {id: 'closed', l: 'col_closed', c: '#F7F6F3'},
+  ];
+  useEffect(() => { if (ch) api.get('/api/channels/' + ch + '/tasks').then(setT2); }, [ch]);
+  const move = async (id, st) => { await fetch('/api/channels/' + ch + '/tasks/' + id + '/status', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'status=' + st}); api.get('/api/channels/' + ch + '/tasks').then(setT2); };
+  return (
+    <div className="row">
+      <div className="col-side"><div className="panel"><div className="panel-head"><span className="panel-title">{t('channels')}</span></div><div className="panel-body">{chs.map(c => <div key={c.id} className={'li ' + (ch === c.id ? 'active' : '')} onClick={() => onCh(c.id)}>{c.id.slice(0, 20)}</div>)}</div></div></div>
+      <div className="col-main">
+        <div className="kanban">
+          {COLS.map(col => (
+            <div key={col.id} className="k-col">
+              <div className="k-head" style={{background: col.c, color: 'var(--ink-dim)'}}><span>{t(col.l)}</span><span>{tasks.filter(t3 => t3.status === col.id).length}</span></div>
+              {tasks.filter(t3 => t3.status === col.id).map(t3 => (
+                <div key={t3.id} className="k-card fade-in">
+                  <div className="flex items-center justify-between mb-2"><span className="text-dim text-xs text-mono">#{t3.id}</span><Bdg cls={'bdg-' + (t3.priority === 'P1' ? 'red' : t3.priority === 'P2' ? 'amber' : 'green')}>{t3.priority}</Bdg></div>
+                  <div className="text-sm mb-2">{t3.title}</div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-dim text-xs text-mono">@{t3.assignee || '-'}</span>
+                    <select style={{background: 'transparent', border: 'none', color: 'var(--ink-dim)', fontSize: '0.7rem', cursor: 'pointer', fontFamily: 'var(--font-mono)'}} onChange={e => move(t3.id, e.target.value)} value="">
+                      <option value="">{t('move')}</option>{COLS.filter(c => c.id !== col.id).map(c => <option key={c.id} value={c.id}>{t(c.l)}</option>)}
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Ledger({ ch, chs, onCh }) {
+  const t = useT();
+  const st = useST();
+  const [entries, setE] = useState([]);
+  const [detail, setD] = useState(null);
+  const [filter, setF] = useState('');
+  useEffect(() => { let u = '/api/ledger?limit=100'; if (ch) u += '&channel_id=' + ch; if (filter) u += '&status=' + filter; api.get(u).then(setE); }, [ch, filter]);
+  const show = async (id) => setD(await api.get('/api/ledger/' + id));
+  const FS = [{v: '', l: 'all'}, {v: 'running', l: 'running'}, {v: 'completed', l: 'completed'}, {v: 'failed', l: 'failed'}, {v: 'cancelled', l: 'cancelled_s'}];
+  return (
+    <div className="row">
+      <div className="col-side">
+        <div className="panel mb-4"><div className="panel-head"><span className="panel-title">{t('channels')}</span></div><div className="panel-body">{chs.map(c => <div key={c.id} className={'li ' + (ch === c.id ? 'active' : '')} onClick={() => { onCh(c.id); setD(null); }}>{c.id.slice(0, 20)}</div>)}</div></div>
+        <div className="panel"><div className="panel-head"><span className="panel-title">{t('filter')}</span></div><div className="panel-body">{FS.map(o => <div key={o.v} className={'li ' + (filter === o.v ? 'active' : '')} onClick={() => setF(o.v)}>{t(o.l)}</div>)}</div></div>
+      </div>
+      <div className="col-main">
+        <div className="panel mb-4">
+          <div className="panel-head"><span className="panel-title">{t('exec_records')}</span><Bdg cls="bdg-neutral">{entries.length}</Bdg></div>
+          <div className="panel-body scroll" style={{maxHeight: '480px'}}>
+            {entries.map(e => {
+              const tools = JSON.parse(e.tool_calls || '[]');
+              return (
+                <div key={e.id} className="py-2 bdr-b fade-in" style={{cursor: 'pointer'}} onClick={() => show(e.id)}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-dim text-xs text-mono">#{e.id}</span>
+                    <span style={{fontFamily: 'var(--font-display)', fontSize: '0.95rem', fontWeight: '500'}}>{e.agent_id}</span>
+                    <Bdg cls={e.status === 'completed' ? 'bdg-green' : e.status === 'failed' ? 'bdg-red' : e.status === 'running' ? 'bdg-amber' : 'bdg-neutral'}>{st(e.status)}</Bdg>
+                    <Bdg cls="bdg-neutral">{e.duration_ms || 0}ms</Bdg>
+                    <Bdg cls="bdg-amber">{tools.length} {t('tools')}</Bdg>
+                    {e.delegation_depth > 0 && <Bdg cls="bdg-neutral">{t('depth', {n: e.delegation_depth})}</Bdg>}
+                    {e.streamed == 1 && <Bdg cls="bdg-green">{t('stream')}</Bdg>}
+                  </div>
+                  <div className="text-dim text-xs text-mono truncate" style={{marginTop: '4px'}}>{e.trigger_message}</div>
+                </div>
+              );
+            })}
+            {entries.length === 0 && <div className="text-dim text-sm" style={{padding: '8px'}}>{t('no_records')}</div>}
+          </div>
+        </div>
+        {detail && (
+          <div className="panel">
+            <div className="panel-head"><span className="panel-title">#{detail.id}</span></div>
+            <div className="panel-body">
+              <div className="flex gap-4 mb-4 text-sm" style={{flexWrap: 'wrap'}}>
+                <span className="text-dim">{t('agent_l')}: <span className="text-mono">{detail.agent_id}</span></span>
+                <span className="text-dim">{t('status')}: <span className="text-mono">{st(detail.status)}</span></span>
+                <span className="text-dim">{t('duration')}: <span className="text-mono">{detail.duration_ms}ms</span></span>
+                <span className="text-dim">{t('delegation_depth')}: <span className="text-mono">{detail.delegation_depth}</span></span>
+              </div>
+              {detail.error && <div className="mb-2" style={{padding: '8px 12px', borderRadius: '4px', background: 'var(--red-bg)', color: 'var(--red-tx)', fontSize: '0.8rem'}}>{detail.error}</div>}
+              <div className="mb-4"><div className="text-dim text-xs text-mono mb-2">{t('trigger_msg')}</div><pre className="code">{detail.trigger_message}</pre></div>
+              <div className="mb-4">
+                <div className="text-dim text-xs text-mono mb-2">{t('tool_chain')}</div>
+                {JSON.parse(detail.tool_calls || '[]').map((tc, i) => (
+                  <div key={i} className="mb-2" style={{padding: '12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px'}}>
+                    <div className="flex items-center gap-2 mb-1"><span className="text-mono text-sm">{tc.name}</span><span className="text-dim text-xs text-mono">{tc.duration_ms}ms</span></div>
+                    <pre className="code" style={{marginTop: '4px', fontSize: '0.7rem'}}>{tc.args}</pre>
+                    <pre className="code" style={{marginTop: '4px', fontSize: '0.7rem'}}>{tc.result}</pre>
+                  </div>
+                ))}
+                {JSON.parse(detail.tool_calls || '[]').length === 0 && <div className="text-dim text-sm">{t('no_tool_calls')}</div>}
+              </div>
+              {detail.final_text && <div><div className="text-dim text-xs text-mono mb-2">{t('final_output')}</div><pre className="code">{detail.final_text}</pre></div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Workspace({ ch, chs, onCh }) {
+  const t = useT();
+  const [agents, setA] = useState([]);
+  const [files, setF] = useState([]);
+  const [content, setC] = useState(null);
+  const [selAg, setSelAg] = useState('');
+  useEffect(() => { if (ch) api.get('/api/channels/' + ch + '/agents').then(setA); }, [ch]);
+  const loadF = async (ag) => { setSelAg(ag); setC(null); setF((await api.get('/api/channels/' + ch + '/agents/' + ag + '/workspace')).files || []); };
+  const showF = async (n) => setC(await api.get('/api/channels/' + ch + '/agents/' + selAg + '/workspace/' + n));
+  return (
+    <div className="row">
+      <div className="col-side">
+        <div className="panel mb-4"><div className="panel-head"><span className="panel-title">{t('channels')}</span></div><div className="panel-body">{chs.map(c => <div key={c.id} className={'li ' + (ch === c.id ? 'active' : '')} onClick={() => onCh(c.id)}>{c.id.slice(0, 20)}</div>)}</div></div>
+        <div className="panel"><div className="panel-head"><span className="panel-title">{t('agent')}</span></div><div className="panel-body">{agents.map(a => <div key={a.id} className={'li ' + (selAg === a.id ? 'active' : '')} onClick={() => loadF(a.id)}>{a.display_name}</div>)}</div></div>
+      </div>
+      <div className="col-main">
+        <div className="panel mb-4"><div className="panel-head"><span className="panel-title">{t('files')}</span></div><div className="panel-body">
+          {files.map(f => (
+            <div key={f.name} className="flex items-center justify-between mb-2 fade-in" style={{padding: '10px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer'}} onClick={() => showF(f.name)}>
+              <div className="flex items-center gap-3"><Ico name="folder" s={14} /><span className="text-sm text-mono">{f.name}</span></div>
+              <span className="text-dim text-xs text-mono">{(f.size / 1024).toFixed(1)}K</span>
+            </div>
+          ))}
+          {files.length === 0 && <div className="text-dim text-sm">{t('no_files')}</div>}
+        </div></div>
+        {content && <div className="panel"><div className="panel-head"><span className="panel-title">{content.filename}</span></div><div className="panel-body"><pre className="code">{content.content}</pre></div></div>}
+      </div>
+    </div>
+  );
+}
+
+function Health() {
+  const t = useT();
+  const [out, setOut] = useState(t('click_to_check'));
+  const run = async () => { setOut(t('checking')); setOut((await api.get('/api/health')).output || t('check_done')); };
+  return <div style={{maxWidth: '780px'}}><div className="panel"><div className="panel-head"><span className="panel-title">{t('system_diag')}</span><button className="btn btn-primary" onClick={run}>{t('run_check')}</button></div><div className="panel-body"><pre className="code" style={{whiteSpace: 'pre-wrap', maxHeight: 'none'}}>{out}</pre></div></div></div>;
+}
+
+function App() {
+  const [tab, setTab] = useState('dashboard');
+  const [chs, setChs] = useState([]);
+  const [ch, setCh] = useState('');
+  const [lang, setLang] = useState(() => {
+    const urlLang = new URLSearchParams(location.search).get('lang');
+    if (urlLang === 'zh' || urlLang === 'en') return urlLang;
+    return localStorage.getItem('tg-lang') || 'zh';
+  });
+  useEffect(() => { api.get('/api/channels').then(c => { setChs(c); if (c.length > 0 && !ch) setCh(c[0].id); }); }, []);
+  const switchLang = (l) => { setLang(l); localStorage.setItem('tg-lang', l); };
+  return (
+    <LangCtx.Provider value={lang}>
+    <Shell tab={tab} setTab={setTab} lang={lang} chs={chs} switchLang={switchLang}>
+      {tab === 'dashboard' && <Dashboard ch={ch} chs={chs} onCh={setCh} />}
+      {tab === 'kanban' && <Kanban ch={ch} chs={chs} onCh={setCh} />}
+      {tab === 'ledger' && <Ledger ch={ch} chs={chs} onCh={setCh} />}
+      {tab === 'workspace' && <Workspace ch={ch} chs={chs} onCh={setCh} />}
+      {tab === 'health' && <Health />}
+    </Shell>
+    </LangCtx.Provider>
+  );
+}
+
+function Shell({ tab, setTab, lang, chs, switchLang, children }) {
+  const t = useT();
+  useEffect(() => { document.title = 'Open Claude Tag Lark · ' + t('control_panel'); }, [lang]);
+  return (
+    <div>
+      <header className="header">
+        <div className="brand">
+          <div>
+            <div className="brand-name">Open Claude Tag Lark</div>
+            <div className="brand-sub">{t('control_panel')}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="lang-switch">
+            <button className={'lang-btn ' + (lang === 'zh' ? 'active' : '')} onClick={() => switchLang('zh')}>中文</button>
+            <button className={'lang-btn ' + (lang === 'en' ? 'active' : '')} onClick={() => switchLang('en')}>EN</button>
+          </div>
+          <div className="header-meta"><span className="live"></span>{chs.length} {t('channels').toLowerCase()}</div>
+        </div>
+      </header>
+      <Tabs tab={tab} setTab={setTab} t={t} />
+      <main className="main">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
