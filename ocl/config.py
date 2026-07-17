@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # Limits
     default_max_tokens_per_request: int = 50_000
     default_max_tokens_per_day: int = 500_000
-    context_window_messages: int = 50
+    context_window_messages: int = 20
 
     # Heartbeat — optional separate (cheaper) model for proactive monitoring
     heartbeat_model: str = ""
@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     mem0_vector_store_path: str = ""
     mem0_search_top_k: int = 5
 
+    # Layered memory (memU-style: global / task / working layers)
+    memory_layered_enabled: bool = False
+    memory_embedder_api_base: str = "https://api.siliconflow.cn/v1"
+    memory_embedder_model: str = "BAAI/bge-m3"
+    memory_embedder_api_key: str = ""
+    memory_retrieve_top_k: int = 8
+    memory_inject_max_chars: int = 3000
+
     # Web admin server (task board + agent management)
     web_admin_enabled: bool = False
     web_admin_host: str = "0.0.0.0"
@@ -78,6 +86,13 @@ class Settings(BaseSettings):
 
     # Agent lifecycle
     agent_idle_timeout_seconds: int = 600
+
+    # OpenSandbox — code execution sandbox
+    sandbox_enabled: bool = False
+    sandbox_domain: str = "127.0.0.1:8079"
+    sandbox_protocol: str = "http"
+    sandbox_image: str = "opensandbox/code-interpreter:v1.1.0"
+    sandbox_timeout_minutes: int = 30
 
     @property
     def channels_dir(self) -> Path:

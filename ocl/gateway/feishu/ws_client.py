@@ -299,6 +299,36 @@ def start() -> None:
         log_level=lark.LogLevel.INFO,
     )
 
+    # Watchdog: lark-oapi _select() blocks forever and doesn't detect dead
+    # connections. Check ws._conn every 20s; if dead, exit process for restart.
+    import os as _os
+    import threading as _threading
+    import time as _wt
+
+    def _ws_watchdog():
+        _wt.sleep(15)
+        while True:
+            conn = getattr(ws, "_conn", None)
+            if conn is None:
+                logger.error("Watchdog: ws._conn is None — exiting for restart")
+                _os._exit(1)
+            # websockets 15: check close_code (set when connection closes)
+            close_code = getattr(conn, "close_code", None)
+            if close_code is not None:
+                logger.error("Watchdog: ws connection closed (code=%s) — exiting for restart", close_code)
+                _os._exit(1)
+            _wt.sleep(20)
+
+    _threading.Thread(target=_ws_watchdog, name="ws-watchdog", daemon=True).start()
+
+    # Start sandbox cleanup task (destroys idle sandboxes periodically)
+    # start_cleanup_task calls asyncio.create_task which needs a running loop,
+    # so schedule it on the bg_loop instead of the main thread.
+    if settings.sandbox_enabled:
+        from ocl.tools.sandbox.lifecycle import start_cleanup_task
+        bg_loop.call_soon_threadsafe(start_cleanup_task)
+        logger.info("Sandbox cleanup task started")
+
     try:
         ws.start()  # blocking
     finally:
@@ -311,6 +341,14 @@ def start() -> None:
             _heartbeat.shutdown()
         except Exception:
             logger.exception("Heartbeat shutdown failed")
+        # Destroy all active sandboxes on shutdown
+        if settings.sandbox_enabled:
+            try:
+                from ocl.tools.sandbox.lifecycle import graceful_shutdown
+                await_coro = asyncio.run_coroutine_threadsafe(graceful_shutdown(), bg_loop)
+                await_coro.result(timeout=10)
+            except Exception:
+                logger.exception("Sandbox graceful shutdown failed")
         bg_loop.call_soon_threadsafe(bg_loop.stop)
         bg_thread.join(timeout=5)
 

@@ -12,6 +12,25 @@ import structlog
 
 
 def main() -> None:
+    # Configure standard logging FIRST — many modules use logging.getLogger()
+    # and without a handler, their output is silently discarded.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stderr,
+    )
+
+    # Force Feishu WebSocket to bypass system proxy (xray/clash on localhost:10808).
+    # websockets 15 reads system proxy settings even when proxy=None is passed.
+    # Adding NO_PROXY ensures msg-frontier.feishu.cn connects directly.
+    import os as _os
+    _no_proxy = _os.environ.get("NO_PROXY", "")
+    feishu_hosts = "msg-frontier.feishu.cn,open.feishu.cn,*.feishu.cn,*.larksuite.com"
+    if feishu_hosts not in _no_proxy:
+        _os.environ["NO_PROXY"] = f"{_no_proxy},{feishu_hosts}" if _no_proxy else feishu_hosts
+        _os.environ["no_proxy"] = _os.environ["NO_PROXY"]
+
     structlog.configure(
         processors=[
             structlog.stdlib.add_log_level,

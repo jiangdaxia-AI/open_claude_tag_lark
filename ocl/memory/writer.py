@@ -121,17 +121,24 @@ async def run_memory_curation(
             return
 
         import json
-        from ocl.agent.loop import _handle_memory_tool
+        from ocl.runtime.handlers import _handle_memory_tool, sync_memory_to_layered
 
+        wrote = False
         for tc in msg.tool_calls:
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments or "{}")
             if fn_name in ("memory_append", "memory_replace", "memory_delete"):
                 _handle_memory_tool(channel_id, fn_name, fn_args, agent_id=agent_id)
+                wrote = True
                 logger.info(
                     "Memory updated via curation: %s in channel=%s agent=%s",
                     fn_name, channel_id, agent_id,
                 )
+
+        # Sync MEMORY.md into the layered store so future turns can
+        # retrieve relevant slices via embedding instead of the full dump.
+        if wrote:
+            await sync_memory_to_layered(channel_id, agent_id)
 
     except Exception:
         logger.exception("Memory curation failed for channel=%s agent=%s", channel_id, agent_id)

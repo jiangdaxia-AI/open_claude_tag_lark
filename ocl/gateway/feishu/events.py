@@ -54,12 +54,7 @@ class FeishuEventHandler:
         message_id = message["message_id"]
         chat_id = message.get("chat_id")
 
-        # File-based debug log for event tracing
-        import time as _time
         mentions = message.get("mentions", []) or []
-        with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-            _f.write(f"[{_time.time()}] EVENT received: event_id={event_id} chat={chat_id} chat_type={chat_type} sender={sender_id} msg_id={message_id}\n")
-            _f.write(f"  mentions={mentions}\n")
 
         if not chat_id:
             logger.warning("No chat_id in event %s", event_id)
@@ -219,10 +214,7 @@ async def _ensure_bot_open_ids(registry, chat_id: str, gateway=None) -> None:
     ws_client imports FeishuEventHandler from this module at module load time.
     """
     from ocl.gateway.feishu.auth import TokenManager
-    import time as _time
 
-    with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-        _f.write(f"[{_time.time()}] _ensure_bot_open_ids called: chat={chat_id}\n")
 
     for cfg in registry.iter_enabled():
         # Register a persistent TokenManager for this agent on the gateway
@@ -232,29 +224,17 @@ async def _ensure_bot_open_ids(registry, chat_id: str, gateway=None) -> None:
                 agent_tm = TokenManager(cfg.feishu_app_id, cfg.feishu_app_secret)
                 if hasattr(gateway, "register_agent_token_manager"):
                     gateway.register_agent_token_manager(cfg.agent_id, agent_tm)
-                    with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                        _f.write(f"  registered token_mgr for agent {cfg.agent_id}\n")
 
         if cfg.feishu_bot_open_id:
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"  agent {cfg.agent_id}: already has open_id={cfg.feishu_bot_open_id[:16]}...\n")
             continue
         if not cfg.feishu_app_id or not cfg.feishu_app_secret:
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"  agent {cfg.agent_id}: no app_id/secret\n")
             continue
         tm = TokenManager(cfg.feishu_app_id, cfg.feishu_app_secret)
         try:
             open_id = await tm.fetch_bot_open_id()
             if open_id:
                 cfg.feishu_bot_open_id = open_id
-                with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(f"  agent {cfg.agent_id}: DISCOVERED open_id={open_id[:16]}...\n")
-            else:
-                with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(f"  agent {cfg.agent_id}: fetch returned EMPTY\n")
-        except Exception as _e:
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"  agent {cfg.agent_id}: EXCEPTION {_e!r}\n")
+        except Exception:
+            pass
         finally:
             await tm.close()

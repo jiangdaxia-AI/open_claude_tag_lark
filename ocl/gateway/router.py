@@ -60,6 +60,8 @@ async def route_message(
     agent_id: str = "default",
     _delegation_depth: int = 0,
     _upstream_agents: set[str] | None = None,
+    _delegation_task_id: int | None = None,
+    _session_id: str = "",
 ) -> None:
     """Route a message to the correct agent, handling @mention resolution.
 
@@ -103,6 +105,8 @@ async def route_message(
                 agent_id=agent_id,
                 _delegation_depth=_delegation_depth,
                 _upstream_agents=_upstream_agents,
+                _delegation_task_id=_delegation_task_id,
+                _session_id=_session_id,
             )
         except Exception:
             logger.exception("Error handling message in chat %s for agent %s", chat_id, agent_id)

@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from ocl.agent.loop import _handle_memory_tool
+from ocl.runtime.handlers import _handle_memory_tool
 
 
 @pytest.fixture()

@@ -16,6 +16,28 @@
 
 ---
 
+## 加入社区
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="assets/qq-group-qr.jpg" alt="QQ 交流群二维码" width="200" /><br />
+      <b>扫码加入交流 QQ 群</b>
+    </td>
+    <td align="center">
+      <img src="assets/wechat-qr.jpg" alt="微信二维码" width="200" /><br />
+      <b>加微信与我交流</b>
+    </td>
+  </tr>
+</table>
+
+<!-- TODO: 将两张二维码图片放入 assets/ 目录：
+     - assets/qq-group-qr.jpg  （QQ 群二维码）
+     - assets/wechat-qr.jpg    （微信二维码）
+-->
+
+---
+
 ## 这是什么
 
 [Anthropic Claude Tag](https://www.anthropic.com/news/introducing-claude-tag) 提出了一个革命性理念：AI 不应该是私聊里的个人助手，而应该是**频道里的共享队友**——一个群一个 agent，所有人共享同一份记忆，agent 知道谁说了什么、记得上次的结论、能主动跟进没做完的事。
@@ -25,11 +47,40 @@
 **Open Claude Tag Lark 是它的开源复刻，落地到飞书生态**：
 
 - **数字员工，不是聊天机器人** — 每个 agent 是一个有身份、有记忆、有专长的"数字员工"，像真同事一样在群里协作
-- **多员工自动分工** — 主 agent 把子任务 `@委派` 给专门 agent（产品专家、代码专家...），各司其职，像真实团队一样运作
+- **多员工自动分工** — 主 agent 把子任务 `@委派` 给专门 agent（产品专家、代码专家...），运行时自动建依赖链、按序唤醒、任务追踪，各司其职
+- **隔离沙箱执行代码** — 内置 OpenSandbox 代码执行环境，agent 可以在沙箱里跑 Python/JS/Go、读写文件、装依赖，session 内状态持久
+- **三层记忆，越用越聪明** — 全局知识 / 任务进展 / 当前对话分层存储，向量检索按需召回，记忆再多也不拖慢上下文
 - **飞书生态完美集成** — 基于 lark-oapi 长连接、互动卡片流式输出、多 bot 身份、@用户名自动解析，原生体验无割裂感
 - **完全可扩展** — LLM 无关（一行配置切 Claude/GPT/DeepSeek/Ollama）、MCP 工具生态（任意 MCP server 即插即用）、文件化配置（git 可管理）、自托管（数据完全在你手里）
 
 市面上的飞书 AI bot 几乎都是"个人助手"——你私聊它，它只记得你说过的话，群里其他人完全不知道。换个同事去问，它又从零开始。Open Claude Tag Lark 反过来做：**一个飞书群 = 一个共享数字员工**，群里所有人共用同一份记忆，新人进群也能立刻接上下文，不用再翻聊天记录。
+
+## 产品截图
+
+Web 控制台（`WEB_ADMIN_ENABLED=true` 启动后访问 `:8765`）：
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="assets/console-overview.png" alt="概览" /><br />
+      <b>概览</b> — 频道、Agent、任务状态一目了然
+    </td>
+    <td width="50%">
+      <img src="assets/console-kanban-cn.png" alt="任务看板" /><br />
+      <b>任务看板</b> — 多 Agent 任务按状态分列，进度实时可见
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="assets/console-ledger.png" alt="执行记录" /><br />
+      <b>执行记录</b> — 每个 Agent 每次执行的工具链、耗时、输出全程可溯
+    </td>
+    <td width="50%">
+      <img src="assets/console-files.png" alt="工作区文件" /><br />
+      <b>工作区文件</b> — Agent 产出的 PRD、技术评审等文档集中管理
+    </td>
+  </tr>
+</table>
 
 ## 它能为你做什么
 
@@ -137,6 +188,17 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 # 存储目录
 DATA_DIR=./data
+
+# 分层记忆（向量检索，推荐开启）
+MEMORY_LAYERED_ENABLED=true
+MEMORY_EMBEDDER_API_BASE=https://api.siliconflow.cn/v1   # 或任何 OpenAI 兼容 embedding 端点
+MEMORY_EMBEDDER_MODEL=BAAI/bge-m3
+MEMORY_EMBEDDER_API_KEY=sk-...
+
+# 代码执行沙箱（可选，需 Docker + OpenSandbox Server）
+SANDBOX_ENABLED=false
+SANDBOX_DOMAIN=127.0.0.1:8079
+SANDBOX_IMAGE=opensandbox/code-interpreter:v1.1.0
 ```
 
 ### 3. 配置频道
@@ -223,7 +285,7 @@ data/channels/<chat_id>/
 id = "main"
 display_name = "总指挥"
 model = "claude-sonnet-4-6"     # 覆盖全局模型
-scopes = ["web_search", "run_python", "delegate"]  # 工具白名单
+scopes = ["web_search", "exec_code", "task_create"]  # 工具白名单
 
 [[agent]]
 id = "code-reviewer"
@@ -262,20 +324,28 @@ allowed_tools = ["list_prs", "get_file", "create_comment"]
      ▼
   Context Assembler
   ├── CHANNEL.md       （身份、职责）
-  ├── MEMORY.md        （agent 维护的事实，常驻上下文）
+  ├── AGENT.md         （agent 人设 + 职责边界）
+  ├── 分层记忆检索      （全局 + 任务记忆，embedding 按需召回）
   ├── skills/*.md      （语义匹配后按需加载）
-  └── 最近 N 条消息     （带 @用户名 归属）
+  └── 最近 N 条消息     （按 agent 归属：自己的话 vs 队友的话）
+     │
+     ▼
+  AgentRuntime  （统一运行时上下文：12+ 参数收敛为一个对象）
      │
      ▼
   Agent Loop  （ReAct + tool-use via LiteLLM）
-  ├── Tool Registry  ← tools.toml 注册的 MCP servers
-  ├── Built-in tools ← web_search / run_python / search_history
-  │                    delegate / save_artifact / thread_follow
-  │                    bookmark_message / memory_append / memory_replace
-  └── 流式卡片 → 飞书 PATCH 实时更新
+  ├── ToolDispatcher 统一调度
+  │   ├── 内置工具     ← web_search / search_history / save_artifact / memory_*
+  │   ├── 沙箱工具     ← exec_code / sandbox_* （OpenSandbox 隔离执行）
+  │   ├── 编排工具     ← plan_subtasks / run_subtask / wait_subtasks（DAG 依赖）
+  │   ├── 任务工具     ← task_create / task_list / task_update（自动依赖链 + 委派唤醒）
+  │   ├── 能力发现     ← list_capabilities / describe_capability
+  │   └── MCP 工具     ← tools.toml 注册的任意 MCP server
+  └── 流式卡片 → 飞书 PATCH 实时更新（含"思考中/已执行"状态填充）
      │
      ├── Memory 内循环  ← agent 用一次额外 LLM turn 决定写什么到 MEMORY.md
-     │
+     │   └── 写入后自动同步到分层记忆（行级 segment 增量 embedding）
+     ├── Checkpoint     ← 每轮保存执行检查点，进程重启自动恢复
      └── Skill 评估器   ← 工具调用 ≥ N？写 SKILL.md
      │
      ▼
@@ -285,27 +355,45 @@ allowed_tools = ["list_prs", "get_file", "create_comment"]
   Ambient Engine  （后台）
   ├── 频道级 APScheduler cron
   ├── Heartbeat 评估器："有没有值得跟进的事？"
+  ├── 沙箱生命周期巡检（空闲销毁、优雅退出清理）
   └── 有 → 主动发飞书消息；无 → SILENT
 ```
 
-## 记忆架构（分层）
+## 记忆架构（三层 + 向量检索）
+
+借鉴 [memU](https://github.com/NevaMind-AI/memU) 的"文件 + 行级 segment + 增量 embedding"设计，不再把整份 MEMORY.md 塞进上下文：
 
 ```
-Layer 1 — 上下文窗口（每次都加载）
-  CHANNEL.md + MEMORY.md + 命中的 SKILL.md + 最近 N 条消息
+Layer 1 — 全局记忆（Global Memory）
+  长期团队知识：约定、决策、角色、技术栈
+  scope = channel + agent
+  每轮对话用用户消息做 query，embedding 检索 top-k 相关片段注入
+  （而不是全量注入 MEMORY.md —— 记忆再多也不拖慢上下文）
 
-Layer 2 — 会话存储（SQLite + FTS5，按频道隔离）
-  完整消息历史、工具调用记录
-  全文检索："上个月我们决定 X 怎么处理来着？"
+Layer 2 — 任务记忆（Task Memory）
+  当前大任务的进展：PRD 完成、评审结论、产物路径
+  scope = channel + agent + session（一个大任务 = 一个 session，贯穿整个委派链）
+  任务完成时自动记录，仅当前 session 相关时检索注入
 
-Layer 3 — 语义召回（Mem0，可选）
-  关键决策和事实的向量索引
-  namespace = chat_id（频道间完全隔离）
+Layer 3 — 执行记忆（Working Memory）
+  最近 N 条消息（messages.db）
+  按 agent 归属区分"自己说的"和"队友说的"（多 agent 身份不混淆）
+
+检索机制：
+  - 行级 segment：记忆按行切片独立 embedding（bge-m3，1024 维）
+  - 增量 reconciliation：重新写入时只对新增行做 embedding，
+    不变行保留向量，删除行移除 —— 几乎零成本
+  - 单次 embedding 调用 + 暴力余弦排序，无 LLM 调用，毫秒级返回
+  - 相关性下限过滤：无关 query 不注入任何记忆（不污染上下文）
 
 Layer 4 — 技能库（按频道）
   复杂任务后自动生成的 SKILL.md
   语义匹配后加载到上下文
   生命周期：active → stale（30d 未用）→ archived（90d）
+
+Layer 5 — 语义召回（Mem0，可选）
+  关键决策和事实的向量索引（ChromaDB）
+  namespace = chat_id（频道间完全隔离）
 ```
 
 ## 支持的 LLM
@@ -328,16 +416,45 @@ Layer 4 — 技能库（按频道）
 
 每个频道默认可用，无需配置：
 
+**基础工具**
+
 | 工具 | 作用 |
 |---|---|
 | `web_search` | DuckDuckGo 即时搜索，无需 API key |
-| `run_python` | 沙箱内执行 Python 代码片段 |
 | `search_channel_history` | 全文检索本频道历史消息 |
-| `delegate` | 把子任务委派给其他 agent（多 agent 模式） |
 | `save_artifact` | 把生成物保存到 agent 工作区 |
-| `thread_follow` / `thread_unfollow` | 关注/取关某个话题线程 |
-| `bookmark_message` | 给重要消息打书签 |
-| `memory_append` / `memory_replace` | 写入/更新 `MEMORY.md` |
+| `thread_unfollow` / `bookmark_message` | 线程管理 / 消息书签 |
+| `memory_append` / `memory_replace` / `memory_delete` | 长期记忆写入（自动同步到分层向量记忆） |
+
+**沙箱代码执行**（[OpenSandbox](https://github.com/OpenSandbox) 隔离环境，按 session 复用）
+
+| 工具 | 作用 |
+|---|---|
+| `exec_code` | 在独立沙箱中执行 Python/JS/Java/Go/Bash，变量与文件跨调用持久 |
+| `sandbox_read_file` / `sandbox_write_file` / `sandbox_list_files` | 沙箱文件读写 |
+| `sandbox_install_package` | 安装 pip/npm 依赖 |
+
+**多 Agent 编排**（运行时保障执行顺序：依赖链 + 自动唤醒 + 任务追踪）
+
+| 工具 | 作用 |
+|---|---|
+| `task_create` / `task_list` / `task_update` / `task_get` / `task_claim` | 任务板（同 session 自动建立依赖链，assignee 委派自动唤醒目标 agent） |
+| `plan_subtasks` | 把复杂任务拆成带 DAG 依赖的子任务 |
+| `run_subtask` / `wait_subtasks` / `get_subtask_status` / `retry_subtask` | 子任务执行、等待、状态查询、重试 |
+
+**能力发现**
+
+| 工具 | 作用 |
+|---|---|
+| `list_capabilities` | 按分类列出全部可用工具 |
+| `describe_capability` | 查看某个工具的详细用法 |
+
+**提醒与定时**
+
+| 工具 | 作用 |
+|---|---|
+| `reminder_schedule` / `reminder_list` / `reminder_cancel` | 一次性提醒 |
+| `schedule_task` / `list_crons` / `cancel_cron` | cron 定时任务 |
 
 通过 `tools.toml` 还能接入任意 MCP server——GitHub、Linear、Notion、Jira、Datadog 等。
 
@@ -347,24 +464,38 @@ Layer 4 — 技能库（按频道）
 ocl/
   gateway/
     feishu/
-      ws_client.py    ← lark_oapi 长连接入口
+      ws_client.py    ← lark_oapi 长连接入口（含沙箱生命周期集成）
       events.py       ← 事件分发、@解析、用户名替换
       gateway.py      ← 发消息、流式卡片、文件上传
       auth.py         ← 飞书 tenant access token
-    router.py         ← chat_id → AgentSession 路由
+    router.py         ← chat_id → AgentSession 路由（session 贯穿委派链）
+  runtime/            ← 统一运行时
+    context.py        ← AgentRuntime：12+ 参数收敛为一个对象
+    dispatcher.py     ← ToolDispatcher：统一工具调度（exact > prefix > fallback）
+    handlers.py       ← 各类工具 handler（任务/提醒/cron/记忆 + 委派自动唤醒）
+    orchestrator.py   ← 子任务编排引擎（DAG 依赖、等待、重试）
+    delegation.py     ← 委派：任务链创建、@mention、下游唤醒
+    context_manager.py← 长上下文压缩（超阈值时 LLM 摘要）
+    checkpoint.py     ← 执行检查点（进程重启自动恢复）
   agent/
-    loop.py           ← ReAct 主循环、流式输出、委派
-    context.py        ← 系统提示词组装（CHANNEL.md + MEMORY + skills）
+    loop.py           ← ReAct 主循环、流式输出、检查点、记忆检索注入
+    context.py        ← 系统提示词组装（含多 agent 消息归属）
   agents/
     config.py         ← agents.toml 解析、scopes、workspace
+    task_store.py     ← 任务板（依赖链、session 过滤、活跃任务过滤）
     ledger.py         ← 执行账本（SQLite 持久化）
     cancel.py         ← asyncio 取消令牌
-    thread_follow.py  ← 话题关注
   memory/
+    layered.py        ← 三层记忆（全局/任务/执行）+ 行级 segment 增量 embedding
+    embedder.py       ← embedding 客户端（SiliconFlow bge-m3 / OpenAI 兼容）
     store.py          ← SQLite + FTS5，频道隔离
+    writer.py         ← 记忆策展内循环（写后同步到分层记忆）
   tools/
     registry.py       ← 频道级工具注册，读 tools.toml
     builtins.py       ← 内置工具实现
+    sandbox/          ← OpenSandbox 沙箱（provider/tools/lifecycle）
+    orchestration.py  ← 编排工具 schema + handler
+    capability.py     ← 能力发现工具
   ambient/
     heartbeat.py      ← 主动巡检
   llm.py              ← LiteLLM 封装、流式、网关路由
@@ -378,7 +509,7 @@ channels/
   templates/          ← 全局默认模板（新群自动初始化时复制此目录）
     CHANNEL.md
     agents.toml       ← 把 feishu_app_id/secret 换成你自己的
-    agents/           ← 每个 agent 的 AGENT.md 人设
+    agents/           ← 每个 agent 的 AGENT.md 人设（含职责边界）
 tests/
 ```
 
@@ -409,16 +540,22 @@ mypy ocl/       # 类型检查
   - [x] 飞书互动卡片流式 PATCH 输出
   - [x] 执行账本 + 取消令牌
   - [x] Web 控制台（看板、账本、工作区、诊断）+ i18n
-- [ ] **Phase 3** — 记忆深化
-  - [ ] Letta 内循环记忆策展
-  - [ ] 技能自动沉淀（≥N 工具调用 → SKILL.md）
-  - [ ] 技能加载器：语义匹配任务
-  - [ ] Mem0 语义召回层
-- [ ] **Phase 4** — 主动模式
+- [x] **Phase 3** — 记忆深化 + 运行时
+  - [x] Letta 内循环记忆策展
+  - [x] 三层记忆架构（全局/任务/执行）+ 行级 segment 向量检索（memU 风格）
+  - [x] AgentRuntime 统一运行时 + ToolDispatcher 统一工具调度
+  - [x] 长上下文压缩（超阈值 LLM 摘要）+ 执行检查点（重启自动恢复）
+  - [x] Mem0 语义召回层（可选）
+- [x] **Phase 4** — 沙箱 + 编排
+  - [x] OpenSandbox 隔离代码执行（exec_code，按 session 复用，生命周期自动清理）
+  - [x] 自主编排工具（plan_subtasks / run_subtask / wait_subtasks，DAG 依赖）
+  - [x] 委派链任务追踪（session 贯穿、具体任务标题、完成自动唤醒下游）
+  - [x] 能力发现（list_capabilities / describe_capability）
+- [ ] **Phase 5** — 主动模式
   - [ ] APScheduler 频道级心跳
   - [ ] LLM heartbeat 评估器（SILENT / 主动发）
   - [ ] `schedule_task` 工具：agent 自建监控 cron
-- [ ] **Phase 5** — 治理 + 多平台
+- [ ] **Phase 6** — 治理 + 多平台
   - [ ] 频道级审计日志（token 消耗、工具调用）
   - [ ] 硬性 token 预算（BUDGET.md）
   - [ ] Discord / Teams 适配器
@@ -433,7 +570,9 @@ mypy ocl/       # 类型检查
 | [LiteLLM](https://github.com/BerriAI/litellm) | 多提供商 LLM 路由 |
 | [lark-oapi](https://github.com/larksuite/oapi-sdk-python) | 飞书开放平台官方 SDK |
 | [Letta (MemGPT)](https://github.com/letta-ai/letta) | 内循环记忆策展模式 |
-| [Mem0](https://github.com/mem0ai/mem0) | 语义召回层 |
+| [memU](https://github.com/NevaMind-AI/memU) | 分层记忆的行级 segment + 增量 embedding 设计 |
+| [OpenSandbox](https://github.com/OpenSandbox) | 隔离代码执行沙箱 |
+| [Mem0](https://github.com/mem0ai/mem0) | 语义召回层（可选） |
 
 ## License
 

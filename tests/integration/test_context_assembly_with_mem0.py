@@ -16,22 +16,22 @@ def channel_dir(tmp_path, monkeypatch):
     return ch_dir
 
 
-def test_mem0_recall_injected_into_system_prompt(channel_dir):
+async def test_mem0_recall_injected_into_system_prompt(channel_dir):
     """Mem0 search results injected when non-empty."""
     recall = "- User prefers dark mode\n- Project uses FastAPI"
-    prompt = build_system_prompt("C1", {}, mem0_recall=recall)
+    prompt = await build_system_prompt("C1", {}, mem0_recall=recall)
     assert "## 相关记忆 (语义召回)" in prompt
     assert "User prefers dark mode" in prompt
     assert "Project uses FastAPI" in prompt
 
 
-def test_mem0_recall_empty_not_injected(channel_dir):
+async def test_mem0_recall_empty_not_injected(channel_dir):
     """Empty Mem0 results don't add section to system prompt."""
-    prompt = build_system_prompt("C1", {}, mem0_recall="")
+    prompt = await build_system_prompt("C1", {}, mem0_recall="")
     assert "相关记忆" not in prompt
 
 
-def test_mem0_recall_default_not_injected(channel_dir):
+async def test_mem0_recall_default_not_injected(channel_dir):
     """Default (no mem0_recall arg) doesn't inject section."""
-    prompt = build_system_prompt("C1", {})
+    prompt = await build_system_prompt("C1", {})
     assert "相关记忆" not in prompt

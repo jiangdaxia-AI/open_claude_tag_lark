@@ -73,7 +73,19 @@ class FeishuGateway:
         reply_to: str | None = None,
         agent_id: str | None = None,
     ) -> str:
-        """Send a message. Splits long text by paragraphs (≤30KB each)."""
+        """Send a message. Splits long text by paragraphs (≤30KB each).
+
+        If the text contains @mentions of group members, automatically
+        converts them to real Feishu <at> tags so the mentioned users
+        receive notifications.
+        """
+        # Scan for @mentions and convert to real Feishu at-tags
+        mentions = await self._resolve_mentions(chat_id, text)
+        if mentions:
+            return await self.send_message_with_mentions(
+                chat_id=chat_id, text=text, mentions=mentions,
+                reply_to=reply_to, agent_id=agent_id,
+            )
         chunks = self._split_text(text)
         first_message_id = ""
         for i, chunk in enumerate(chunks):
@@ -233,16 +245,9 @@ class FeishuGateway:
             headers={"Authorization": f"Bearer {token}"},
         )
         # File-based debug log — bypasses structlog
-        import time as _time
-        with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-            _f.write(f"[{_time.time()}] send_message_with_mentions: HTTP {resp.status_code}\n")
-            _f.write(f"  payload={json.dumps(payload, ensure_ascii=False)[:300]}\n")
-            _f.write(f"  resp_body={resp.text[:500]}\n")
         resp.raise_for_status()
         data = resp.json()["data"]
         msg_id = data["message_id"]
-        with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-            _f.write(f"  SUCCESS message_id={msg_id}\n")
         logger.info(
             "Sent message with %d mentions: chat_id=%s message_id=%s",
             len(mentions), chat_id, msg_id,
@@ -265,6 +270,7 @@ class FeishuGateway:
         """
         token_mgr = self._get_token_mgr(agent_id)
         token = await token_mgr.get_tenant_token()
+        text = await self._resolve_at_in_text(chat_id, text)
         card = self._build_card(text)
         payload: dict = {
             "receive_id": chat_id,
@@ -283,37 +289,87 @@ class FeishuGateway:
         resp.raise_for_status()
         msg_id = resp.json()["data"]["message_id"]
         import time as _t
-        with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-            _f.write(f"  [{_t.time()}] send_card POST msg={msg_id} text={text[:80]!r}\n")
         return msg_id
 
     @staticmethod
     def _build_card(text: str) -> dict:
-        """Build a Feishu interactive card with a single div + plain_text block.
+        """Build a Feishu interactive card with a markdown element.
 
-        Uses plain_text (not lark_md) because lark_md causes content duplication
-        on PATCH updates in the Feishu client. plain_text replaces cleanly.
+        The "markdown" tag supports both markdown formatting AND <at> tags.
+        Strips leading/trailing whitespace and collapses multiple blank lines.
         """
+        import re
+        content = (text or " ").strip()
+        # Collapse 3+ consecutive newlines into 2 (avoid large blank gaps)
+        content = re.sub(r'\n{3,}', '\n\n', content)
         return {
             "config": {"wide_screen_mode": True},
             "elements": [
-                {"tag": "div", "text": {"tag": "plain_text", "content": text or " "}},
+                {"tag": "markdown", "content": content or " "},
             ],
         }
+
+    async def _resolve_at_in_text(self, chat_id: str, text: str) -> str:
+        """Replace @name in text with <at user_id="open_id"></at> for Feishu markdown cards.
+
+        Uses group member list as name → open_id lookup.
+        If multiple members have the same name, all are @mentioned.
+        """
+        import re
+        try:
+            members = await self.get_chat_members(chat_id)
+            if not members:
+                return text
+
+            # Build name → [open_id] reverse map
+            name_to_open_ids: dict[str, list[str]] = {}
+            for open_id, name in members.items():
+                if name:
+                    name_to_open_ids.setdefault(name, []).append(open_id)
+
+            # Also include agent display_names → bot_open_ids
+            try:
+                from ocl.agents.config import load_agents
+                registry = load_agents(chat_id)
+                for cfg in registry.iter_enabled():
+                    if cfg.feishu_bot_open_id and cfg.display_name:
+                        name_to_open_ids.setdefault(cfg.display_name, []).append(cfg.feishu_bot_open_id)
+            except Exception:
+                pass
+
+            # Replace @name with <at> tags
+            def _replace_at(match):
+                name = match.group(1).strip()
+                open_ids = name_to_open_ids.get(name, [])
+                if not open_ids:
+                    return match.group(0)  # no match, keep original text
+                # If multiple open_ids (重名), @ all of them
+                return "".join(f'<at user_id="{oid}"></at>' for oid in open_ids)
+
+            # Match @后跟1-20个非空白非@字符，不匹配已有的 <at 标签
+            result = re.sub(r'@([^\s@<，。！!,.：:]+)', _replace_at, text)
+            if result != text:
+                logger.info("Resolved @mentions in card text for chat=%s", chat_id)
+            return result
+        except Exception:
+            logger.exception("Failed to resolve @mentions in text")
+            return text
 
     async def update_card_message(
         self,
         message_id: str,
         text: str,
         agent_id: str | None = None,
+        chat_id: str | None = None,
     ) -> None:
         """Update a card message's content via Feishu PATCH API.
 
-        Feishu client renders card updates instantly (unlike text message PATCH
-        which has rendering delays). This is what makes streaming feel live.
+        If chat_id is provided, resolves @mentions in text to <at> tags.
         """
         token_mgr = self._get_token_mgr(agent_id)
         token = await token_mgr.get_tenant_token()
+        if chat_id:
+            text = await self._resolve_at_in_text(chat_id, text)
         card = self._build_card(text)
         payload = {
             "msg_type": "interactive",
@@ -327,8 +383,6 @@ class FeishuGateway:
             )
             # Debug: log what we're actually sending
             import time as _t
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"  [{_t.time()}] update_card PATCH msg={message_id} text={text[:80]!r}\n")
             if resp.status_code != 200:
                 logger.debug("update_card_message HTTP %s: %s", resp.status_code, resp.text[:200])
         except Exception as e:
@@ -434,6 +488,59 @@ class FeishuGateway:
             return user_id
 
     # ──────────────────────────── get_chat_members ────────────────────────
+
+    async def _resolve_mentions(self, chat_id: str, text: str) -> list[dict]:
+        """Scan text for @name patterns and resolve to Feishu open_id mentions.
+
+        Uses the group member list as a "name → open_id" lookup table.
+        If multiple members have the same name, all are mentioned.
+        Returns a list of {"open_id": ..., "name": ...} for use with
+        send_message_with_mentions.
+        """
+        import re
+        mentions: list[dict] = []
+        seen_open_ids: set[str] = set()
+
+        try:
+            members = await self.get_chat_members(chat_id)  # {open_id: name}
+            if not members:
+                return []
+
+            # Build name → [open_id] reverse map
+            name_to_open_ids: dict[str, list[str]] = {}
+            for open_id, name in members.items():
+                if name:
+                    name_to_open_ids.setdefault(name, []).append(open_id)
+
+            # Also include agent display_names → bot_open_ids from registry
+            try:
+                from ocl.agents.config import load_agents
+                registry = load_agents(chat_id)
+                for cfg in registry.iter_enabled():
+                    if cfg.feishu_bot_open_id and cfg.display_name:
+                        name_to_open_ids.setdefault(cfg.display_name, []).append(cfg.feishu_bot_open_id)
+            except Exception:
+                pass
+
+            # Find all @name patterns in text
+            # Match @后跟1-20个非空白非@字符
+            for match in re.finditer(r'@([^\s@，。！!,.：:]+)', text):
+                name = match.group(1).strip()
+                if not name or len(name) > 20:
+                    continue
+                open_ids = name_to_open_ids.get(name, [])
+                for oid in open_ids:
+                    if oid not in seen_open_ids:
+                        mentions.append({"open_id": oid, "name": name})
+                        seen_open_ids.add(oid)
+
+            if mentions:
+                logger.info("Resolved %d mentions in text: %s", len(mentions),
+                           [m["name"] for m in mentions])
+        except Exception:
+            logger.exception("Failed to resolve mentions in text")
+
+        return mentions
 
     async def get_chat_members(self, chat_id: str) -> dict[str, str]:
         token = await self._token_mgr.get_tenant_token()

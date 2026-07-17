@@ -153,6 +153,44 @@ async def get_ledger_entry(entry_id: int):
     return result
 
 
+@app.get("/api/token-usage")
+async def token_usage_stats(channel_id: str | None = None, days: int = 7):
+    """Aggregate token usage stats (observation only, no enforcement)."""
+    from ocl.agents.ledger import _get_ledger_db
+    import time
+    since = time.time() - days * 86400
+    db = await _get_ledger_db()
+    try:
+        # Per-agent breakdown
+        if channel_id:
+            cursor = await db.execute(
+                """SELECT agent_id,
+                          SUM(prompt_tokens) as prompt_tokens,
+                          SUM(completion_tokens) as completion_tokens,
+                          SUM(total_tokens) as total_tokens,
+                          COUNT(*) as call_count
+                   FROM ledger WHERE channel_id = ? AND started_at >= ?
+                   GROUP BY agent_id ORDER BY total_tokens DESC""",
+                (channel_id, since),
+            )
+        else:
+            cursor = await db.execute(
+                """SELECT agent_id,
+                          SUM(prompt_tokens) as prompt_tokens,
+                          SUM(completion_tokens) as completion_tokens,
+                          SUM(total_tokens) as total_tokens,
+                          COUNT(*) as call_count
+                   FROM ledger WHERE started_at >= ?
+                   GROUP BY agent_id ORDER BY total_tokens DESC""",
+                (since,),
+            )
+        rows = [dict(r) for r in await cursor.fetchall()]
+        total = sum(r["total_tokens"] or 0 for r in rows)
+        return {"days": days, "total_tokens": total, "by_agent": rows}
+    finally:
+        await db.close()
+
+
 @app.post("/api/channels/{channel_id}/agents/{agent_id}/cancel")
 async def cancel_agent_run(channel_id: str, agent_id: str):
     from ocl.agents.cancel import cancel_agent

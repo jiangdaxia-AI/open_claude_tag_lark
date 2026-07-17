@@ -14,6 +14,30 @@
   <img alt="mcp-native" src="https://img.shields.io/badge/MCP-native-10b981?style=flat" />
 </p>
 
+---
+
+## Join the Community
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="assets/qq-group-qr.jpg" alt="QQ group QR code" width="200" /><br />
+      <b>Scan to join the QQ group</b>
+    </td>
+    <td align="center">
+      <img src="assets/wechat-qr.jpg" alt="WeChat QR code" width="200" /><br />
+      <b>Add me on WeChat</b>
+    </td>
+  </tr>
+</table>
+
+<!-- TODO: place the two QR code images into the assets/ directory:
+     - assets/qq-group-qr.jpg  (QQ group QR code)
+     - assets/wechat-qr.jpg    (WeChat QR code)
+-->
+
+---
+
 ## What is this
 
 [Anthropic Claude Tag](https://www.anthropic.com/news/introducing-claude-tag) introduced a revolutionary idea: AI shouldn't be a personal assistant in DMs, but a **shared teammate in a channel** — one agent per channel, everyone shares the same memory, the agent knows who said what, remembers past conclusions, and proactively follows up on unfinished business.
@@ -23,11 +47,40 @@ But Claude Tag is closed-source, paid, locked to Anthropic models, and only avai
 **Open Claude Tag Lark is the open-source replica, built for the Feishu ecosystem**:
 
 - **Digital employees, not chatbots** — each agent is a "digital employee" with identity, memory, and expertise, collaborating in groups like a real coworker
-- **Multi-employee auto-collaboration** — primary agent `@delegates` subtasks to specialized agents (product expert, code expert...), each doing what they're best at, like a real team
+- **Multi-employee auto-collaboration** — primary agent `@delegates` subtasks to specialized agents (product expert, code expert...); the runtime builds dependency chains, wakes agents in order, and tracks every task
+- **Isolated sandbox execution** — built-in OpenSandbox code execution: agents run Python/JS/Go, read/write files, install packages in isolated containers, state persists within a session
+- **Three-layer memory that scales** — global knowledge / task progress / current conversation stored separately, embedding retrieval pulls only what's relevant — no more full memory dumps slowing down every turn
 - **Deep Feishu integration** — built on lark-oapi long connection, interactive card streaming output, multi-bot identity, @username auto-parsing — native experience, no friction
 - **Fully extensible** — LLM-agnostic (one config line switches Claude/GPT/DeepSeek/Ollama), MCP tool ecosystem (any MCP server plugs in instantly), file-based config (git-manageable), self-hosted (your data stays yours)
 
 Almost every Feishu AI bot on the market is a "personal assistant" — you DM it, it only remembers what you said, and nobody else in the group has a clue. A coworker asks the same question and the bot starts from zero. Open Claude Tag Lark flips this: **one Feishu group = one shared digital employee**, everyone shares the same memory, new joiners pick up the context instantly instead of scrolling through hundreds of messages.
+
+## Screenshots
+
+Web console (start with `WEB_ADMIN_ENABLED=true`, then visit `:8765`):
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="assets/console-overview.png" alt="Overview" /><br />
+      <b>Overview</b> — channels, agents, and task status at a glance
+    </td>
+    <td width="50%">
+      <img src="assets/console-kanban-en.png" alt="Task Kanban" /><br />
+      <b>Task Kanban</b> — multi-agent tasks grouped by status, progress in real time
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="assets/console-ledger.png" alt="Execution Ledger" /><br />
+      <b>Execution Ledger</b> — full tool chain, duration, and output of every agent run
+    </td>
+    <td width="50%">
+      <img src="assets/console-files.png" alt="Workspace Files" /><br />
+      <b>Workspace Files</b> — PRDs, tech reviews, and other agent-produced documents in one place
+    </td>
+  </tr>
+</table>
 
 ## What it can do for you
 
@@ -134,6 +187,17 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 # Storage
 DATA_DIR=./data
+
+# Layered memory (vector retrieval, recommended)
+MEMORY_LAYERED_ENABLED=true
+MEMORY_EMBEDDER_API_BASE=https://api.siliconflow.cn/v1   # or any OpenAI-compatible endpoint
+MEMORY_EMBEDDER_MODEL=BAAI/bge-m3
+MEMORY_EMBEDDER_API_KEY=sk-...
+
+# Code execution sandbox (optional, requires Docker + OpenSandbox Server)
+SANDBOX_ENABLED=false
+SANDBOX_DOMAIN=127.0.0.1:8079
+SANDBOX_IMAGE=opensandbox/code-interpreter:v1.1.0
 ```
 
 ### 3. Configure a channel
@@ -220,7 +284,7 @@ data/channels/<chat_id>/
 id = "main"
 display_name = "Commander"
 model = "claude-sonnet-4-6"     # override global model
-scopes = ["web_search", "run_python", "delegate"]  # tool allowlist
+scopes = ["web_search", "exec_code", "task_create"]  # tool allowlist
 
 [[agent]]
 id = "code-reviewer"
@@ -259,20 +323,28 @@ Feishu group @bot
      v
   Context Assembler
   |- CHANNEL.md       (identity, purpose)
-  |- MEMORY.md        (agent-maintained facts, always in context)
+  |- AGENT.md         (agent persona + role boundaries)
+  |- Layered retrieval (global + task memory, embedding recall on demand)
   |- skills/*.md      (loaded on semantic match)
-  +- Last N messages  (with @username attribution)
+  +- Last N messages  (attributed: own replies vs teammates' replies)
+     |
+     v
+  AgentRuntime  (unified runtime context: 12+ params in one object)
      |
      v
   Agent Loop  (ReAct + tool-use via LiteLLM)
-  |- Tool Registry  <- MCP servers from tools.toml
-  |- Built-in tools <- web_search / run_python / search_history
-  |                   delegate / save_artifact / thread_follow
-  |                   bookmark_message / memory_append / memory_replace
-  +- Streaming card -> Feishu PATCH real-time updates
+  |- ToolDispatcher (exact > prefix > fallback)
+  |   |- Built-in     <- web_search / search_history / save_artifact / memory_*
+  |   |- Sandbox      <- exec_code / sandbox_* (OpenSandbox isolated execution)
+  |   |- Orchestration<- plan_subtasks / run_subtask / wait_subtasks (DAG deps)
+  |   |- Tasks        <- task_create / task_list / task_update (auto-chaining + wake)
+  |   |- Discovery    <- list_capabilities / describe_capability
+  |   +- MCP tools    <- any MCP server from tools.toml
+  +- Streaming card -> Feishu PATCH updates (with "thinking/executed" gap fillers)
      |
-     |- Memory inner loop  <- agent gets one extra LLM turn to curate MEMORY.md
-     |
+     |- Memory inner loop  <- one extra LLM turn curates MEMORY.md
+     |   +- writes sync to layered memory (line-level incremental embedding)
+     |- Checkpoint         <- per-round state; auto-resume after restart
      +- Skill evaluator    <- tool calls >= N? write SKILL.md
      |
      v
@@ -282,27 +354,48 @@ Feishu group @bot
   Ambient Engine  (background)
   |- Per-channel APScheduler cron
   |- Heartbeat evaluator: "anything worth surfacing?"
+  |- Sandbox lifecycle patrol (idle cleanup, graceful shutdown)
   +- Yes -> proactively post Feishu message; No -> SILENT
 ```
 
-## Memory Architecture (layered)
+## Memory Architecture (three layers + vector retrieval)
+
+Borrowing [memU](https://github.com/NevaMind-AI/memU)'s "file + line-level segments + incremental embedding" design — no more stuffing the entire MEMORY.md into every prompt:
 
 ```
-Layer 1 - Context window (loaded every turn)
-  CHANNEL.md + MEMORY.md + matched SKILL.md + last N messages
+Layer 1 - Global Memory
+  Long-lived team knowledge: conventions, decisions, roles, tech stack
+  scope = channel + agent
+  Every turn: embed the user message, retrieve top-k relevant slices
+  (instead of injecting the full MEMORY.md — memory growth no longer
+   slows down the context)
 
-Layer 2 - Session store (SQLite + FTS5, channel-isolated)
-  Full message history, tool call records
-  Full-text search: "what did we decide about X last month?"
+Layer 2 - Task Memory
+  Current big-task progress: PRD done, review conclusions, artifact paths
+  scope = channel + agent + session (one big task = one session across
+  the whole delegation chain)
+  Auto-recorded on task completion, recalled only for the active session
 
-Layer 3 - Semantic recall (Mem0, optional)
-  Vector index over key decisions and facts
-  namespace = chat_id (fully isolated per channel)
+Layer 3 - Working Memory
+  Last N messages (messages.db)
+  Attributed per agent: "my own replies" vs "teammates' replies"
+  (prevents multi-agent identity confusion)
+
+Retrieval mechanics:
+  - Line-level segments: memories sliced per line, each embedded (bge-m3)
+  - Incremental reconciliation: re-commits only embed new lines —
+    unchanged lines keep vectors, removed lines are deleted (near-zero cost)
+  - Single embedding call + brute-force cosine, no LLM call, ms latency
+  - Relevance floor: irrelevant queries inject nothing (no context pollution)
 
 Layer 4 - Skill library (per channel)
   Auto-generated SKILL.md after complex tasks
   Loaded into context on semantic match
   Lifecycle: active -> stale (30d unused) -> archived (90d)
+
+Layer 5 - Semantic recall (Mem0, optional)
+  Vector index over key decisions and facts (ChromaDB)
+  namespace = chat_id (fully isolated per channel)
 ```
 
 ## Supported LLMs
@@ -325,16 +418,45 @@ Unified interface via [LiteLLM](https://github.com/BerriAI/litellm) — set `LLM
 
 Available in every channel by default, no config needed:
 
+**Core tools**
+
 | Tool | What it does |
 |---|---|
 | `web_search` | DuckDuckGo instant search, no API key required |
-| `run_python` | Execute Python snippets in a sandbox |
 | `search_channel_history` | Full-text search across this channel's history |
-| `delegate` | Delegate a subtask to another agent (multi-agent mode) |
 | `save_artifact` | Save a generated artifact to the agent workspace |
-| `thread_follow` / `thread_unfollow` | Follow / unfollow a topic thread |
-| `bookmark_message` | Bookmark an important message |
-| `memory_append` / `memory_replace` | Write to / update `MEMORY.md` |
+| `thread_unfollow` / `bookmark_message` | Thread management / bookmarks |
+| `memory_append` / `memory_replace` / `memory_delete` | Long-term memory writes (auto-synced to layered vector memory) |
+
+**Sandbox code execution** (isolated [OpenSandbox](https://github.com/OpenSandbox) containers, reused per session)
+
+| Tool | What it does |
+|---|---|
+| `exec_code` | Run Python/JS/Java/Go/Bash in an isolated sandbox; variables & files persist across calls |
+| `sandbox_read_file` / `sandbox_write_file` / `sandbox_list_files` | Sandbox file I/O |
+| `sandbox_install_package` | Install pip/npm packages |
+
+**Multi-agent orchestration** (runtime-enforced ordering: dependency chains + auto-wake + task tracking)
+
+| Tool | What it does |
+|---|---|
+| `task_create` / `task_list` / `task_update` / `task_get` / `task_claim` | Task board (auto dependency-chaining within a session; assigning to another agent wakes it automatically) |
+| `plan_subtasks` | Decompose a complex task into DAG-dependent subtasks |
+| `run_subtask` / `wait_subtasks` / `get_subtask_status` / `retry_subtask` | Execute, await, inspect, retry subtasks |
+
+**Capability discovery**
+
+| Tool | What it does |
+|---|---|
+| `list_capabilities` | List all available tools by category |
+| `describe_capability` | Detailed usage for a specific tool |
+
+**Reminders & scheduling**
+
+| Tool | What it does |
+|---|---|
+| `reminder_schedule` / `reminder_list` / `reminder_cancel` | One-shot reminders |
+| `schedule_task` / `list_crons` / `cancel_cron` | Cron-scheduled tasks |
 
 Plug in any MCP server via `tools.toml` — GitHub, Linear, Notion, Jira, Datadog, etc.
 
@@ -344,24 +466,39 @@ Plug in any MCP server via `tools.toml` — GitHub, Linear, Notion, Jira, Datado
 ocl/
   gateway/
     feishu/
-      ws_client.py    <- lark_oapi long connection entry
+      ws_client.py    <- lark_oapi long connection entry (+ sandbox lifecycle)
       events.py       <- event dispatch, @-parsing, username replacement
       gateway.py      <- send messages, streaming cards, file upload
       auth.py         <- Feishu tenant access token
-    router.py         <- chat_id -> AgentSession routing
+    router.py         <- chat_id -> AgentSession routing (session across delegation)
+  runtime/            <- unified runtime
+    context.py        <- AgentRuntime: 12+ params collapsed into one object
+    dispatcher.py     <- ToolDispatcher: unified dispatch (exact > prefix > fallback)
+    handlers.py       <- tool handlers (tasks/reminders/crons/memory + auto-wake)
+    orchestrator.py   <- subtask orchestration engine (DAG deps, await, retry)
+    delegation.py     <- delegation: task chains, @mentions, downstream wake
+    context_manager.py<- long-context compression (LLM summary over threshold)
+    checkpoint.py     <- execution checkpoints (auto-resume after restart)
   agent/
-    loop.py           <- ReAct main loop, streaming output, delegation
-    context.py        <- system prompt assembly (CHANNEL.md + MEMORY + skills)
+    loop.py           <- ReAct main loop, streaming, checkpoints, memory recall
+    context.py        <- system prompt assembly (multi-agent attribution)
   agents/
     config.py         <- agents.toml parsing, scopes, workspace
+    task_store.py     <- task board (dep chains, session filter, active-only default)
     ledger.py         <- execution ledger (SQLite-backed)
     cancel.py         <- asyncio cancel tokens
-    thread_follow.py  <- topic thread follow
   memory/
+    layered.py        <- three-layer memory (global/task/working) + line-level
+                         incremental embedding
+    embedder.py       <- embedding client (SiliconFlow bge-m3 / OpenAI-compatible)
     store.py          <- SQLite + FTS5, channel-isolated
+    writer.py         <- memory curation inner loop (syncs to layered memory)
   tools/
     registry.py       <- channel-level tool registry, reads tools.toml
     builtins.py       <- built-in tool implementations
+    sandbox/          <- OpenSandbox integration (provider/tools/lifecycle)
+    orchestration.py  <- orchestration tool schemas + handler
+    capability.py     <- capability discovery tools
   ambient/
     heartbeat.py      <- proactive patrol
   llm.py              <- LiteLLM wrapper, streaming, gateway routing
@@ -375,7 +512,7 @@ channels/
   templates/          <- global default template (auto-copied when a new group is initialized)
     CHANNEL.md
     agents.toml       <- replace feishu_app_id/secret with your own
-    agents/           <- AGENT.md persona for each agent
+    agents/           <- AGENT.md persona per agent (with role boundaries)
 tests/
 ```
 
@@ -406,16 +543,22 @@ mypy ocl/       # type check
   - [x] Feishu interactive card streaming PATCH output
   - [x] Execution ledger + cancel tokens
   - [x] Web console (kanban, ledger, workspace, diagnostics) + i18n
-- [ ] **Phase 3** — Memory deepening
-  - [ ] Letta inner-loop memory curation
-  - [ ] Skill auto-creation (>=N tool calls -> SKILL.md)
-  - [ ] Skill loader: semantic task match
-  - [ ] Mem0 semantic recall layer
-- [ ] **Phase 4** — Proactive mode
+- [x] **Phase 3** — Memory deepening + runtime
+  - [x] Letta inner-loop memory curation
+  - [x] Three-layer memory (global/task/working) + line-level vector retrieval (memU-style)
+  - [x] AgentRuntime unified context + ToolDispatcher unified dispatch
+  - [x] Long-context compression (LLM summary) + execution checkpoints (auto-resume)
+  - [x] Mem0 semantic recall layer (optional)
+- [x] **Phase 4** — Sandbox + orchestration
+  - [x] OpenSandbox isolated code execution (exec_code, per-session reuse, auto lifecycle)
+  - [x] Autonomous orchestration tools (plan_subtasks / run_subtask / wait_subtasks, DAG deps)
+  - [x] Delegation-chain task tracking (shared session, specific task titles, downstream auto-wake)
+  - [x] Capability discovery (list_capabilities / describe_capability)
+- [ ] **Phase 5** — Proactive mode
   - [ ] APScheduler channel-level heartbeat
   - [ ] LLM heartbeat evaluator (SILENT / proactive post)
   - [ ] `schedule_task` tool: agent self-registers monitoring crons
-- [ ] **Phase 5** — Governance + multi-platform
+- [ ] **Phase 6** — Governance + multi-platform
   - [ ] Channel-level audit log (token spend, tool calls)
   - [ ] Hard token budget (BUDGET.md)
   - [ ] Discord / Teams adapters
@@ -430,7 +573,9 @@ Full roadmap and design decisions are captured in the source code and commit his
 | [LiteLLM](https://github.com/BerriAI/litellm) | Multi-provider LLM routing |
 | [lark-oapi](https://github.com/larksuite/oapi-sdk-python) | Feishu Open Platform official SDK |
 | [Letta (MemGPT)](https://github.com/letta-ai/letta) | Inner-loop memory curation pattern |
-| [Mem0](https://github.com/mem0ai/mem0) | Semantic recall layer |
+| [memU](https://github.com/NevaMind-AI/memU) | Layered memory design: line-level segments + incremental embedding |
+| [OpenSandbox](https://github.com/OpenSandbox) | Isolated code execution sandboxes |
+| [Mem0](https://github.com/mem0ai/mem0) | Semantic recall layer (optional) |
 
 ---
 

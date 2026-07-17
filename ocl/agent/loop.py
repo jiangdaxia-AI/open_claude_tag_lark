@@ -1,11 +1,16 @@
-"""Agent loop — ReAct-style: think → tool call → observe → repeat → reply → memory curation.
+"""Agent loop — ReAct-style: think -> tool call -> observe -> repeat -> reply -> memory curation.
 
 Supports multi-agent mode: each invocation carries an agent_id that determines
 which agent's AGENT.md, MEMORY.md, and tool set to use.
+
+Tool dispatch is handled by the ToolDispatcher (ocl.runtime.dispatcher), which
+replaces the previous if/elif chain. Delegation logic lives in
+ocl.runtime.delegation.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -14,16 +19,16 @@ from ocl.agent.context import build_messages, build_system_prompt
 from ocl.agent.skills import maybe_create_skill
 from ocl.agents.config import AgentConfig, load_agents
 from ocl.agents.lifecycle import wake_agent
-from ocl.agents.task_store import dispatch_task_tool, TASK_TOOL_SCHEMAS
-from ocl.agents.reminder_store import dispatch_reminder_tool, REMINDER_TOOL_SCHEMAS
 from ocl.config import settings
 from ocl.llm import acompletion, acompletion_stream, vision_acompletion
 from ocl.memory.compactor import compact_memory
 from ocl.memory.mem0_store import mem0_add, mem0_search
 from ocl.memory.store import MessageStore, get_store
 from ocl.memory.writer import run_memory_curation
+from ocl.runtime.context import AgentRuntime
+from ocl.runtime.delegation import maybe_delegate_to_agents, trigger_downstream
+from ocl.runtime.dispatcher import get_dispatcher
 from ocl.tools import registry as _tool_registry
-from ocl.tools.registry import get_channel_tools, dispatch_tool
 
 if TYPE_CHECKING:
     from ocl.gateway.base import Gateway
@@ -46,12 +51,20 @@ async def run_agent_loop(
     image_base64: str | None = None,
     _delegation_depth: int = 0,
     _upstream_agents: set[str] | None = None,
+    _delegation_task_id: int | None = None,
+    _session_id: str = "",
 ) -> None:
     # Create cancellation token and ledger entry for this run
     from ocl.agents.cancel import create_cancel_token, remove_cancel_token, is_cancelled
     from ocl.agents.ledger import LedgerEntry, create_entry as ledger_create, finalize_entry as ledger_finalize
 
     cancel_token = create_cancel_token(channel_id, agent_id)
+
+    # Task session: one session spans the whole big-task — the user's message
+    # starts a new session; every delegated agent in the chain inherits it so
+    # task chaining, task-layer memory, and session filtering all work.
+    from ocl.agents.task_store import new_session_id
+    _task_session_id = _session_id or new_session_id()
     ledger_entry = LedgerEntry(
         channel_id=channel_id,
         agent_id=agent_id,
@@ -64,6 +77,24 @@ async def run_agent_loop(
         await ledger_create(ledger_entry)
     except Exception:
         pass
+
+    # Build unified runtime context — replaces 12+ individual parameters
+    rt = AgentRuntime(
+        channel_id=channel_id,
+        agent_id=agent_id,
+        workspace_id=workspace_id,
+        session_id=_task_session_id,
+        user_id=user_id,
+        display_name=display_name,
+        gateway=gateway,
+        store=store,
+        ledger_entry=ledger_entry,
+        cancel_token=cancel_token,
+        delegation_depth=_delegation_depth,
+        upstream_agents=_upstream_agents or set(),
+        delegation_task_id=_delegation_task_id,
+        dispatcher=get_dispatcher(),
+    )
 
     # Wake the agent (record activity, reset idle timer)
     wake_agent(channel_id, agent_id)
@@ -97,23 +128,37 @@ async def run_agent_loop(
         await _tool_registry._mcp_mgr.warm_tools(channel_id)
 
     mem0_recall = await mem0_search(channel_id, user_id, text)
-    system_prompt = build_system_prompt(channel_id, user_map, agent_config=agent_config, mem0_recall=mem0_recall)
-    messages = await build_messages(channel_id, user_id, display_name, text, message_id, store)
+    system_prompt = await build_system_prompt(
+        channel_id, user_map,
+        agent_config=agent_config, mem0_recall=mem0_recall,
+        task_text=text, session_id=_task_session_id,
+    )
+    messages = await build_messages(channel_id, user_id, display_name, text, message_id, store, agent_id=agent_id)
 
     if image_base64:
         _attach_image_to_last_message(messages, image_base64)
 
-    tools = get_channel_tools(channel_id)
-    # Add task + reminder tools to every agent's toolset
-    tools = list(tools) if tools else []
-    tools.extend(TASK_TOOL_SCHEMAS)
-    tools.extend(REMINDER_TOOL_SCHEMAS)
+    # Check for existing checkpoint — resume from crash/interrupt
+    _resume_round = 0
+    from ocl.runtime.checkpoint import get_checkpoint_manager
+    _saved_state = await get_checkpoint_manager().resume(rt)
+    if _saved_state is not None:
+        logger.info(
+            "Resuming from checkpoint: round %d, %d messages (channel=%s agent=%s)",
+            _saved_state["round_num"], len(_saved_state["messages"]),
+            channel_id, agent_id,
+        )
+        messages = _saved_state["messages"]
+        _resume_round = _saved_state["round_num"]
+
+    tools = rt.list_tools()
 
     tool_call_count = 0
+    _has_task_create = False  # Track if agent called task_create
     final_text = ""
     streamed_message_id: str | None = None
 
-    for _round in range(MAX_TOOL_ROUNDS):
+    for _round in range(_resume_round, MAX_TOOL_ROUNDS):
         # Check for cancellation between rounds
         if is_cancelled(cancel_token):
             final_text = "任务已取消。"
@@ -124,6 +169,22 @@ async def run_agent_loop(
                     agent_id=agent_id,
                 )
             break
+
+        # Context compression for long conversations — each round before LLM call
+        from ocl.runtime.context_manager import get_context_manager
+        messages = await get_context_manager().maybe_compress(rt, messages)
+
+        # Save checkpoint at the start of each round (for crash recovery)
+        from ocl.runtime.checkpoint import get_checkpoint_manager
+        # Include sandbox_id so we can reattach to the sandbox after restart
+        from ocl.tools.sandbox.provider import get_provider as _get_sandbox_provider
+        _sandbox_id = ""
+        _provider = _get_sandbox_provider()
+        if _task_session_id in _provider._sandboxes:
+            _sandbox = _provider._sandboxes[_task_session_id]
+            _sandbox_id = getattr(_sandbox, "id", "")
+        await get_checkpoint_manager().save(rt, messages, _round, _sandbox_id)
+
         # Use streaming only on the final (text-only) round — when there are no
         # tools, or when tools are present but the model chooses to reply with text.
         # For tool-call rounds, use non-streaming (we need the full tool_calls list).
@@ -136,8 +197,6 @@ async def run_agent_loop(
             tool_calls_chunks: list[dict] = []
             last_patch_time = 0.0
             import time as _time_mod
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"[{_time_mod.time()}] STREAMING branch entered, round={_round}\n")
 
             async for chunk in acompletion_stream(
                 channel_id=channel_id,
@@ -170,8 +229,6 @@ async def run_agent_loop(
                                 reply_to=message_id,
                                 agent_id=agent_id,
                             )
-                            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                                _f.write(f"  STREAM send_card (reasoning) id={streamed_message_id} len={len(display_text)}\n")
                         else:
                             await gateway.update_card_message(
                                 message_id=streamed_message_id,
@@ -195,8 +252,6 @@ async def run_agent_loop(
                                 reply_to=message_id,
                                 agent_id=agent_id,
                             )
-                            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                                _f.write(f"  STREAM send_card id={streamed_message_id} text_len={len(streamed_text)}\n")
                         else:
                             await gateway.update_card_message(
                                 message_id=streamed_message_id,
@@ -228,9 +283,8 @@ async def run_agent_loop(
                         message_id=streamed_message_id,
                         text=streamed_text,
                         agent_id=agent_id,
+                        chat_id=channel_id,
                     )
-                    with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                        _f.write(f"  STREAM final update_card text_len={len(streamed_text)}\n")
                 elif tool_calls_chunks and streamed_reasoning:
                     # Only reasoning came through, tools are about to execute —
                     # update card to show the tool action instead of raw reasoning
@@ -260,27 +314,37 @@ async def run_agent_loop(
                     tool_call_count += 1
                     fn_name = tc["function"]["name"]
                     fn_args = json.loads(tc["function"]["arguments"] or "{}")
+                    if fn_name == "task_create":
+                        _has_task_create = True
 
                     logger.info("Tool call: %s(%s) in channel=%s agent=%s", fn_name, fn_args, channel_id, agent_id)
 
-                    if fn_name.startswith("task_"):
-                        result = await dispatch_task_tool(fn_name, fn_args, channel_id=channel_id, agent_id=agent_id)
-                    elif fn_name.startswith("reminder_"):
-                        result = await dispatch_reminder_tool(fn_name, fn_args, channel_id=channel_id, agent_id=agent_id)
-                    elif fn_name in ("memory_append", "memory_replace", "memory_delete"):
-                        _handle_memory_tool(channel_id, fn_name, fn_args, agent_id=agent_id)
-                        result = "Memory updated."
-                    else:
-                        result = await dispatch_tool(fn_name, fn_args, channel_id=channel_id, store=store, agent_id=agent_id, user_id=user_id)
+                    result = await rt.exec_tool(fn_name, fn_args)
 
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
                         "content": str(result),
                     })
+                # Fill the inter-round gap: while the next LLM call is in flight
+                # (several seconds of latency), show what was just executed and
+                # what the agent is thinking about next — never a blank/stale card.
+                if streamed_message_id:
+                    try:
+                        _done_tools = ", ".join(
+                            tc["function"]["name"] for tc in tool_calls_chunks if tc["function"]["name"]
+                        )
+                        _hint = await _next_step_hint(channel_id, agent_id, _delegation_task_id)
+                        await gateway.update_card_message(
+                            message_id=streamed_message_id,
+                            text=f"⚙️ 已执行: {_done_tools}\n💭 {_hint}",
+                            agent_id=agent_id,
+                        )
+                    except Exception:
+                        pass  # Card update is cosmetic — never block the loop
+
                 # Keep streamed_message_id so next round UPDATES the same card
                 # (instead of sending a new one). Only clear the text buffers.
-                # Note: card already updated to "⚙️ 执行工具" above in the final PATCH block.
                 streamed_text = ""
                 streamed_reasoning = ""
                 # Do NOT reset streamed_message_id — reuse the same card next round
@@ -300,6 +364,13 @@ async def run_agent_loop(
             choice = response.choices[0]
             msg = choice.message
 
+            # Record token usage from non-streaming response
+            if hasattr(response, "usage") and response.usage:
+                ledger_entry.add_token_usage(
+                    prompt=getattr(response.usage, "prompt_tokens", 0) or 0,
+                    completion=getattr(response.usage, "completion_tokens", 0) or 0,
+                )
+
             if not msg.tool_calls:
                 final_text = msg.content or getattr(msg, "reasoning_content", "") or ""
                 break
@@ -309,18 +380,12 @@ async def run_agent_loop(
                 tool_call_count += 1
                 fn_name = tc.function.name
                 fn_args = json.loads(tc.function.arguments or "{}")
+                if fn_name == "task_create":
+                    _has_task_create = True
 
                 logger.info("Tool call: %s(%s) in channel=%s agent=%s", fn_name, fn_args, channel_id, agent_id)
 
-                if fn_name.startswith("task_"):
-                    result = await dispatch_task_tool(fn_name, fn_args, channel_id=channel_id, agent_id=agent_id)
-                elif fn_name.startswith("reminder_"):
-                    result = await dispatch_reminder_tool(fn_name, fn_args, channel_id=channel_id, agent_id=agent_id)
-                elif fn_name in ("memory_append", "memory_replace", "memory_delete"):
-                    _handle_memory_tool(channel_id, fn_name, fn_args, agent_id=agent_id)
-                    result = "Memory updated."
-                else:
-                    result = await dispatch_tool(fn_name, fn_args, channel_id=channel_id, store=store, agent_id=agent_id, user_id=user_id)
+                result = await rt.exec_tool(fn_name, fn_args)
 
                 messages.append({
                     "role": "tool",
@@ -351,18 +416,35 @@ async def run_agent_loop(
             agent_id=agent_id,
         )
 
-    # Agent delegation: parse @<display_name> in the reply and trigger target agents.
-    # Sends a follow-up message with real Feishu <at> mentions so the target bot
-    # receives an app_mention event and its agent wakes up to handle the task.
-    await _maybe_delegate_to_agents(
-        gateway=gateway,
-        channel_id=channel_id,
-        text=final_text,
-        current_agent_id=agent_id,
-        reply_to=message_id,
-        _depth=_delegation_depth,
-        _upstream_agents=_upstream_agents,
-    )
+    # Agent delegation: trigger if the agent explicitly delegated OR if the
+    # reply @mentions another agent but no tasks were created (runtime fallback).
+    _should_delegate = "@delegate:" in final_text or "请接手处理" in final_text
+
+    # Runtime fallback: if the agent @mentioned another agent in its reply
+    # but didn't create any tasks, auto-create tasks and delegate.
+    # Triggers even if the agent called other tools (task_list etc.) —
+    # as long as it didn't call task_create, the runtime fills the gap.
+    if not _should_delegate and not _has_task_create and _delegation_depth == 0:
+        _should_delegate = await _auto_delegate_from_mentions(
+            gateway=gateway,
+            channel_id=channel_id,
+            text=final_text,
+            current_agent_id=agent_id,
+            session_id=_task_session_id,
+            reply_to=message_id,
+        )
+
+    if _should_delegate:
+        await maybe_delegate_to_agents(
+            gateway=gateway,
+            channel_id=channel_id,
+            text=final_text,
+            current_agent_id=agent_id,
+            reply_to=message_id,
+            session_id=_task_session_id,
+            _depth=_delegation_depth,
+            _upstream_agents=_upstream_agents,
+        )
 
     # Persist assistant reply
     await store.add_message(
@@ -395,44 +477,100 @@ async def run_agent_loop(
     # Cleanup cancel token
     remove_cancel_token(channel_id, agent_id, cancel_token)
 
+    # Clear checkpoint — task completed successfully
+    from ocl.runtime.checkpoint import get_checkpoint_manager
+    await get_checkpoint_manager().clear(channel_id, agent_id, _task_session_id)
 
-def _handle_memory_tool(
-    channel_id: str, fn_name: str, args: dict[str, Any], agent_id: str = "default"
-) -> None:
-    from datetime import date
+    # Destroy sandbox for this session — session is done
+    from ocl.tools.sandbox.provider import get_provider as _get_sandbox_provider
+    await _get_sandbox_provider().destroy(_task_session_id)
 
-    # Per-agent memory: channels/<channel_id>/agents/<agent_id>/MEMORY.md
-    if agent_id != "default":
-        memory_path = settings.channels_dir / channel_id / "agents" / agent_id / "MEMORY.md"
-    else:
-        memory_path = settings.channels_dir / channel_id / "MEMORY.md"
+    # Event-driven delegation: trigger downstream agents if this was a delegated task
+    if _delegation_task_id is not None:
+        asyncio.create_task(trigger_downstream(
+            gateway=gateway,
+            channel_id=channel_id,
+            completed_task_id=_delegation_task_id,
+            completed_agent_id=agent_id,
+            _depth=_delegation_depth,
+            _upstream_agents=_upstream_agents,
+        ))
 
-    memory_path.parent.mkdir(parents=True, exist_ok=True)
-    current = memory_path.read_text(encoding="utf-8") if memory_path.exists() else ""
 
-    if fn_name == "memory_append":
-        entry = args.get("content", "").strip()
-        priority = args.get("priority", "P2")
-        if priority not in ("P1", "P2", "P3"):
-            priority = "P2"
-        if entry:
-            today = date.today().isoformat()
-            line = f"- [{today}] [{priority}] {entry}"
-            memory_path.write_text(
-                current.rstrip() + f"\n{line}\n", encoding="utf-8"
-            )
+async def _auto_delegate_from_mentions(
+    gateway,
+    channel_id: str,
+    text: str,
+    current_agent_id: str,
+    session_id: str,
+    reply_to: str,
+) -> bool:
+    """Runtime fallback detector: should we delegate based on @mentions?
 
-    elif fn_name == "memory_replace":
-        old = args.get("old", "")
-        new = args.get("new", "")
-        memory_path.write_text(current.replace(old, new), encoding="utf-8")
+    Returns True when the reply @mentions another agent AND no tasks exist
+    yet in this session (so the caller triggers maybe_delegate_to_agents,
+    which owns task creation + waking). Does NOT create tasks itself —
+    single creation path lives in maybe_delegate_to_agents.
+    """
+    import re
 
-    elif fn_name == "memory_delete":
-        target = args.get("content", "").strip()
-        if target:
-            lines = current.splitlines(keepends=True)
-            filtered = [ln for ln in lines if target not in ln]
-            memory_path.write_text("".join(filtered), encoding="utf-8")
+    from ocl.agents.config import load_agents
+    from ocl.agents.task_store import task_list_by_session
+
+    try:
+        registry = load_agents(channel_id)
+    except Exception:
+        return False
+
+    # Find @mentioned agents in the reply text
+    for cfg in registry.iter_enabled():
+        if cfg.agent_id == current_agent_id:
+            continue
+        if not cfg.feishu_bot_open_id:
+            continue
+        for name in (cfg.display_name, cfg.agent_id):
+            if not name:
+                continue
+            pattern = rf"(^|[\s\W])@{re.escape(name)}(\s+|[，。！!,.:：*]|$)"
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                # Check if tasks already exist in this session (avoid duplicates)
+                if session_id:
+                    try:
+                        existing = await task_list_by_session(channel_id, session_id)
+                    except Exception:
+                        existing = []
+                    if existing:
+                        return False  # Tasks already created
+                logger.info(
+                    "Auto-delegating from @mentions (no tasks created by agent)"
+                )
+                return True
+
+    return False
+
+
+async def _next_step_hint(channel_id: str, agent_id: str, delegation_task_id: int | None) -> str:
+    """Build a contextual 'thinking next' hint for the streaming card gap.
+
+    Uses the current task title so the user sees e.g. '思考：撰写闹钟App的PRD文档…'
+    instead of a blank card between tool rounds.
+    """
+    try:
+        from ocl.agents.task_store import task_get, task_list
+
+        # Prefer the task this agent was delegated to execute
+        if delegation_task_id:
+            task = await task_get(channel_id, delegation_task_id)
+            if task and task.get("title"):
+                return f"思考：{task['title']}…"
+
+        # Otherwise: this agent's latest in-progress task
+        tasks = await task_list(channel_id, status="in_progress", assignee=agent_id)
+        if tasks:
+            return f"思考：{tasks[-1]['title']}…"
+    except Exception:
+        pass
+    return "正在思考下一步…"
 
 
 def _attach_image_to_last_message(messages: list[dict], image_base64: str) -> None:
@@ -445,178 +583,3 @@ def _attach_image_to_last_message(messages: list[dict], image_base64: str) -> No
         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
         {"type": "text", "text": text_content},
     ]
-
-
-_DELEGATION_DEPTH_KEY = "_delegation_depth"
-_MAX_DELEGATION_DEPTH = 5  # prevent infinite agent-to-agent delegation loops
-
-
-async def _maybe_delegate_to_agents(
-    gateway: "Gateway",
-    channel_id: str,
-    text: str,
-    current_agent_id: str,
-    reply_to: str | None = None,
-    _depth: int = 0,
-    _upstream_agents: set[str] | None = None,
-) -> None:
-    """Parse @<display_name> mentions in text and trigger target agents.
-
-    For each @mention that matches another agent's display_name (and that agent
-    has a bot_open_id), send a follow-up rich-text message with a real Feishu
-    <at> tag. Feishu will then deliver an app_mention event to that bot, which
-    wakes the target agent's loop via the normal event handler.
-
-    This is the "agent delegation" mechanism — one agent can hand off work to
-    another by @mentioning it in its reply.
-
-    Targets are executed sequentially (not in parallel) so that downstream
-    agents can see upstream agents' output in the channel history.
-    """
-    import re
-
-    # File-based debug log
-    import time as _time
-    with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-        _f.write(f"[{_time.time()}] _maybe_delegate_to_agents: depth={_depth} current={current_agent_id} text={text[:120]!r}\n")
-
-    # Prevent infinite delegation loops (agent A → B → A → B → ...)
-    if _depth >= _MAX_DELEGATION_DEPTH:
-        with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-            _f.write(f"  MAX DELEGATION DEPTH ({_MAX_DELEGATION_DEPTH}) reached — stopping\n")
-        return
-
-    try:
-        registry = load_agents(channel_id)
-    except Exception as _e:
-        with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-            _f.write(f"[{_time.time()}] load_agents FAILED: {_e!r}\n")
-        return
-
-    # Collect target agents: @<display_name> or @<agent_id> in the text,
-    # excluding the current agent (no self-delegation) and agents without bot_open_id.
-    # Ordered by first @mention position in text (so "先 @A 再 @B" → [A, B]).
-    targets: list[tuple[str, str, str, int]] = []  # (agent_id, display_name, bot_open_id, pos_in_text)
-    seen: set[str] = set()
-    # Longest display_name first to avoid prefix collisions during matching
-    agents = sorted(registry.iter_enabled(), key=lambda c: len(c.display_name), reverse=True)
-    # Build the set of agents to exclude: self + all upstream agents in the chain
-    upstream = _upstream_agents or set()
-    upstream.add(current_agent_id)
-
-    with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-        _f.write(f"  agents: {[(c.agent_id, c.display_name, c.feishu_bot_open_id[:12] if c.feishu_bot_open_id else 'EMPTY') for c in agents]}\n")
-        _f.write(f"  upstream (excluded): {upstream}\n")
-    for cfg in agents:
-        if cfg.agent_id in upstream:
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"  SKIP agent {cfg.agent_id}: in upstream chain\n")
-            continue
-        if not cfg.feishu_bot_open_id:
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"  SKIP agent {cfg.agent_id}: no bot_open_id\n")
-            continue
-        for name in (cfg.display_name, cfg.agent_id):
-            if not name:
-                continue
-            pattern = rf"(^|[\s\W])@{re.escape(name)}(\s+|[，。！!,.:：*]|$)"
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match and cfg.agent_id not in seen:
-                targets.append((cfg.agent_id, cfg.display_name, cfg.feishu_bot_open_id, match.start()))
-                seen.add(cfg.agent_id)
-                with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(f"  MATCH: agent={cfg.agent_id} name={name} pos={match.start()} open_id={cfg.feishu_bot_open_id[:16]}...\n")
-                break
-
-    # Sort targets by their @mention position in text (first mentioned = first executed)
-    targets.sort(key=lambda t: t[3])
-    # Strip the position field — downstream code expects 3-tuples
-    targets = [(t[0], t[1], t[2]) for t in targets]
-
-    with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-        _f.write(f"  targets count: {len(targets)}, order: {[t[0] for t in targets]}\n")
-    if not targets:
-        return
-
-    # Check if gateway supports rich-text mentions
-    if not hasattr(gateway, "send_message_with_mentions"):
-        with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-            _f.write(f"  gateway has NO send_message_with_mentions\n")
-        return
-
-    # Build the mention list and send one message that @mentions all target bots.
-    # The message text is the agent's original reply so target agents see full context.
-    mentions = [{"open_id": bot_open_id, "name": display_name} for _, display_name, bot_open_id in targets]
-    agent_names = ", ".join(f"@{n}" for _, n, _ in targets)
-    with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-        _f.write(f"  SENDING delegation message, mentions={mentions}\n")
-
-    # Build a short trigger message with task order for multi-agent delegation
-    trigger_parts = [f"@{n}" for _, n, _ in targets]
-    if len(targets) > 1:
-        order_hints = " → ".join(f"@{n}" for _, n, _ in targets)
-        trigger_text = f"任务分配顺序：{order_hints}。请按顺序接手处理。"
-    else:
-        trigger_text = " ".join(trigger_parts) + " 上面的任务交给你了，请接手处理。"
-
-    try:
-        await gateway.send_message_with_mentions(
-            chat_id=channel_id,
-            text=trigger_text,
-            mentions=mentions,
-            reply_to=reply_to,
-            agent_id=current_agent_id,
-        )
-    except Exception:
-        logger.exception("Failed to send delegation message to %s", agent_names)
-
-    # Feishu does NOT deliver app_mention events when one bot @mentions another bot.
-    # So we wake the target agent directly in-process: route a synthetic message
-    # to each target agent so it picks up the task.
-    # Targets are executed SEQUENTIALLY so downstream agents see upstream output.
-    import time as _time
-    from ocl.gateway.router import route_message as _route_message
-
-    for idx, (target_agent_id, target_display_name, _target_open_id) in enumerate(targets):
-        try:
-            # Freshness-hold: check if channel has new messages since this agent started.
-            # If yes, prepend a note so the target agent knows the context may be stale.
-            fresh_note = ""
-            try:
-                store = await get_store(gateway.tenant_id, channel_id)
-                last_seq = await store.get_last_seq()
-                if last_seq > 0:
-                    fresh_note = f"(频道当前最新消息 seq={last_seq}) "
-            except Exception:
-                pass
-
-            # Build task-specific message so each agent knows its role and order
-            if len(targets) > 1:
-                task_msg = (
-                    f"我是 @{current_agent_id}。上面的任务需要你来接手。"
-                    f"你是第 {idx+1}/{len(targets)} 个被分配的 agent，"
-                    f"请查看上面的对话内容并开始处理你负责的部分。"
-                )
-            else:
-                task_msg = (
-                    f"我是 @{current_agent_id}，上面的任务需要你来接手。"
-                    f"请查看上面的对话内容并开始处理。"
-                )
-
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"  WAKING target agent={target_agent_id} (depth={_depth+1}, order={idx+1}/{len(targets)})\n")
-            await _route_message(
-                gateway=gateway,
-                tenant_id=gateway.tenant_id,
-                chat_id=channel_id,
-                user_id=f"agent:{current_agent_id}",
-                text=task_msg,
-                message_id=f"delegate_{_time.time()}_{idx}",
-                agent_id=target_agent_id,
-                _delegation_depth=_depth + 1,
-                _upstream_agents=set(upstream),  # pass a copy of the chain
-            )
-        except Exception:
-            with open("/tmp/ocl_delegation_debug.log", "a", encoding="utf-8") as _f:
-                _f.write(f"  WAKE FAILED for agent={target_agent_id}\n")
-            logger.exception("Failed to wake target agent %s", target_agent_id)

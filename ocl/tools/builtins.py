@@ -1,11 +1,8 @@
-"""Built-in tools always available to the agent: web search, Python runner, channel search."""
+"""Built-in tools always available to the agent: web search, channel search, artifacts."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import sys
-from io import StringIO
 from typing import Any
 
 import httpx
@@ -25,20 +22,6 @@ BUILTIN_TOOLS: list[dict] = [
                     "query": {"type": "string", "description": "Search query"},
                 },
                 "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_python",
-            "description": "Execute a Python snippet and return stdout. Use for calculations, data processing, and quick scripts.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {"type": "string", "description": "Python code to execute"},
-                },
-                "required": ["code"],
             },
         },
     },
@@ -135,8 +118,6 @@ BUILTIN_TOOLS: list[dict] = [
 async def dispatch_builtin(fn_name: str, args: dict[str, Any], channel_id: str = "", agent_id: str = "default", user_id: str = "", store=None) -> Any:
     if fn_name == "web_search":
         return await _web_search(args["query"])
-    if fn_name == "run_python":
-        return _run_python(args["code"])
     if fn_name == "save_artifact":
         return await _save_artifact(channel_id, agent_id, args["filename"], args["content"], args["summary"])
     if fn_name == "thread_unfollow":
@@ -188,28 +169,4 @@ async def _web_search(query: str) -> str:
         return f"Search failed: {e}"
 
 
-def _run_python(code: str) -> str:
-    # Sandboxed Python execution — stdout captured, dangerous builtins removed
-    safe_globals: dict[str, Any] = {
-        "__builtins__": {
-            k: v for k, v in __builtins__.items()  # type: ignore[union-attr]
-            if k not in ("open", "exec", "eval", "__import__", "compile")
-        }
-        if isinstance(__builtins__, dict)
-        else {},
-        "print": print,
-    }
-    # Allow common safe stdlib
-    import math, json, re, datetime
-    safe_globals.update({"math": math, "json": json, "re": re, "datetime": datetime})
 
-    old_stdout = sys.stdout
-    sys.stdout = buffer = StringIO()
-    try:
-        exec(code, safe_globals)  # noqa: S102
-        output = buffer.getvalue()
-        return output.strip() or "(no output)"
-    except Exception as e:
-        return f"Error: {e}"
-    finally:
-        sys.stdout = old_stdout

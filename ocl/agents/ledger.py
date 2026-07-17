@@ -45,7 +45,10 @@ CREATE TABLE IF NOT EXISTS ledger (
     ended_at        REAL,
     duration_ms     INTEGER,
     status          TEXT DEFAULT 'running',  -- running | completed | failed | cancelled
-    error           TEXT DEFAULT ''
+    error           TEXT DEFAULT '',
+    prompt_tokens   INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
+    total_tokens    INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_ledger_channel ON ledger(channel_id, started_at DESC);
@@ -71,6 +74,9 @@ class LedgerEntry:
     _streamed: bool = False
     _status: str = "running"
     _error: str = ""
+    _prompt_tokens: int = 0
+    _completion_tokens: int = 0
+    _total_tokens: int = 0
 
     def record_tool_call(self, name: str, args: dict, result: str, duration_ms: int) -> None:
         self._tool_calls.append({
@@ -92,6 +98,12 @@ class LedgerEntry:
     def set_cancelled(self) -> None:
         self._status = "cancelled"
 
+    def add_token_usage(self, prompt: int = 0, completion: int = 0) -> None:
+        """Accumulate token usage from an LLM call."""
+        self._prompt_tokens += prompt
+        self._completion_tokens += completion
+        self._total_tokens = self._prompt_tokens + self._completion_tokens
+
 
 def _truncate(s: str, max_len: int) -> str:
     if len(s) <= max_len:
@@ -106,6 +118,12 @@ async def _get_ledger_db() -> aiosqlite.Connection:
     db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA journal_mode=WAL")
     await db.executescript(_CREATE_LEDGER)
+    # Migration: add token columns if missing (for existing DBs)
+    cursor = await db.execute("PRAGMA table_info(ledger)")
+    cols = [r[1] for r in await cursor.fetchall()]
+    for col in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        if col not in cols:
+            await db.execute(f"ALTER TABLE ledger ADD COLUMN {col} INTEGER DEFAULT 0")
     await db.commit()
     return db
 
@@ -140,11 +158,14 @@ async def finalize_entry(entry: LedgerEntry) -> None:
     try:
         await db.execute(
             """UPDATE ledger SET tool_calls = ?, final_text = ?, final_message_id = ?,
-               streamed = ?, ended_at = ?, duration_ms = ?, status = ?, error = ?
+               streamed = ?, ended_at = ?, duration_ms = ?, status = ?, error = ?,
+               prompt_tokens = ?, completion_tokens = ?, total_tokens = ?
                WHERE id = ?""",
             (json.dumps(entry._tool_calls, ensure_ascii=False),
              entry._final_text, entry._final_message_id, 1 if entry._streamed else 0,
-             ended_at, duration_ms, entry._status, entry._error, entry._id),
+             ended_at, duration_ms, entry._status, entry._error,
+             entry._prompt_tokens, entry._completion_tokens, entry._total_tokens,
+             entry._id),
         )
         await db.commit()
     finally:
