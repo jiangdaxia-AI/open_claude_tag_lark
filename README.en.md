@@ -2,9 +2,20 @@
   <a href="./README.md">简体中文</a> · <b>English</b>
 </p>
 
-# Open Claude Tag Lark — The open-source Claude Tag for the Feishu ecosystem
+<h1 align="center">Open Claude Tag Lark</h1>
 
-> Bringing Anthropic Claude Tag's "shared channel AI teammate" concept to Feishu. One digital employee per group, shared memory for all, multi-agent auto-collaboration.
+<p align="center">
+  <b>An AI digital-employee team living in your Feishu group</b> — one group, one team:<br/>
+  product manager, engineer, and coordinator work for you. Give one sentence,<br/>
+  they plan, execute in order, and deliver documents. Shared memory, never forgets.
+</p>
+
+<p align="center">
+  <a href="https://github.com/jiangdaxia-AI/open_claude_tag_lark/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/jiangdaxia-AI/open_claude_tag_lark?style=social" /></a>
+  <a href="https://github.com/jiangdaxia-AI/open_claude_tag_lark/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/jiangdaxia-AI/open_claude_tag_lark?style=social" /></a>
+  <a href="https://github.com/jiangdaxia-AI/open_claude_tag_lark/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/jiangdaxia-AI/open_claude_tag_lark" /></a>
+  <a href="https://github.com/jiangdaxia-AI/open_claude_tag_lark/commits/main"><img alt="last commit" src="https://img.shields.io/github/last-commit/jiangdaxia-AI/open_claude_tag_lark" /></a>
+</p>
 
 <p align="center">
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat" /></a>
@@ -14,26 +25,20 @@
   <img alt="mcp-native" src="https://img.shields.io/badge/MCP-native-10b981?style=flat" />
 </p>
 
+<p align="center">
+  <i>If this project helps you, a ⭐ Star means a lot — it keeps us iterating.</i>
+</p>
+
 ---
 
-## Join the Community
+<!-- 🎬 DEMO GIF: record a 20-30s clip of the multi-agent flow in a Feishu group,
+     save it to assets/demo.gif and uncomment the block below.
+     Best demo: you post "build me a mini-program, draft the PRD, then have eng review it"
+     → the main agent plans → @product writes the PRD → @engineer reviews → kanban updates live.
 
-<table align="center">
-  <tr>
-    <td align="center">
-      <img src="assets/qq-group-qr.jpg" alt="QQ group QR code" width="200" /><br />
-      <b>Scan to join the QQ group</b>
-    </td>
-    <td align="center">
-      <img src="assets/wechat-qr.jpg" alt="WeChat QR code" width="200" /><br />
-      <b>Add me on WeChat</b>
-    </td>
-  </tr>
-</table>
-
-<!-- TODO: place the two QR code images into the assets/ directory:
-     - assets/qq-group-qr.jpg  (QQ group QR code)
-     - assets/wechat-qr.jpg    (WeChat QR code)
+<p align="center">
+  <img src="assets/demo.gif" alt="Multi-agent collaboration demo" width="720" />
+</p>
 -->
 
 ---
@@ -577,7 +582,29 @@ Full roadmap and design decisions are captured in the source code and commit his
 | [OpenSandbox](https://github.com/OpenSandbox) | Isolated code execution sandboxes |
 | [Mem0](https://github.com/mem0ai/mem0) | Semantic recall layer (optional) |
 
+## Join the Community
+
+Questions or ideas? Scan to chat:
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="assets/qq-group-qr.jpg" alt="QQ group QR code" width="200" /><br />
+      <b>Scan to join the QQ group</b>
+    </td>
+    <td align="center">
+      <img src="assets/wechat-qr.jpg" alt="WeChat QR code" width="200" /><br />
+      <b>Add me on WeChat</b>
+    </td>
+  </tr>
+</table>
+
 ---
+
+<p align="center">
+  <b>⭐ If this project helps you, please Star it ⭐</b><br/>
+  <i>Your star is the best way to help others discover it</i>
+</p>
 
 ## License
 

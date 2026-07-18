@@ -2,9 +2,19 @@
   <b>简体中文</b> · <a href="./README.en.md">English</a>
 </p>
 
-# Open Claude Tag Lark — 飞书生态的 Claude Tag 开源复刻
+<h1 align="center">Open Claude Tag Lark</h1>
 
-> 把 Anthropic Claude Tag 的"共享频道 AI 队友"理念，原汁原味地带到飞书。一群一数字员工，全员共享记忆，多员工自动协作。
+<p align="center">
+  <b>飞书群里的 AI 数字员工团队</b> —— 一个群 = 一支团队：产品、研发、调度各司其职，<br/>
+  你一句话，它们自己拆任务、排队执行、交付文档。共享记忆，永不忘事。
+</p>
+
+<p align="center">
+  <a href="https://github.com/jiangdaxia-AI/open_claude_tag_lark/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/jiangdaxia-AI/open_claude_tag_lark?style=social" /></a>
+  <a href="https://github.com/jiangdaxia-AI/open_claude_tag_lark/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/jiangdaxia-AI/open_claude_tag_lark?style=social" /></a>
+  <a href="https://github.com/jiangdaxia-AI/open_claude_tag_lark/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/jiangdaxia-AI/open_claude_tag_lark" /></a>
+  <a href="https://github.com/jiangdaxia-AI/open_claude_tag_lark/commits/main"><img alt="last commit" src="https://img.shields.io/github/last-commit/jiangdaxia-AI/open_claude_tag_lark" /></a>
+</p>
 
 <p align="center">
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat" /></a>
@@ -14,26 +24,21 @@
   <img alt="mcp-native" src="https://img.shields.io/badge/MCP-native-10b981?style=flat" />
 </p>
 
+<p align="center">
+  <i>如果这个项目对你有帮助，请点个 ⭐ Star 支持一下 —— 这是我们持续迭代的最大动力</i>
+</p>
+
 ---
 
-## 加入社区
+<!-- 🎬 DEMO GIF：录好后取消下面这段的注释，并把文件放到 assets/demo.gif。
+     录制内容（20-30 秒，最能打动人的流程）：
+     群里发一句"我要做个XX小程序，出个需求文档，让研发review一下"
+     → 主 agent 规划任务 → @产品 agent 写 PRD → @代码 agent 技术评审 → 任务看板实时更新。
+     录制工具推荐：Kap (Mac) / LICEcap / ScreenToGif，控制在 5MB 以内。
 
-<table align="center">
-  <tr>
-    <td align="center">
-      <img src="assets/qq-group-qr.jpg" alt="QQ 交流群二维码" width="200" /><br />
-      <b>扫码加入交流 QQ 群</b>
-    </td>
-    <td align="center">
-      <img src="assets/wechat-qr.jpg" alt="微信二维码" width="200" /><br />
-      <b>加微信与我交流</b>
-    </td>
-  </tr>
-</table>
-
-<!-- TODO: 将两张二维码图片放入 assets/ 目录：
-     - assets/qq-group-qr.jpg  （QQ 群二维码）
-     - assets/wechat-qr.jpg    （微信二维码）
+<p align="center">
+  <img src="assets/demo.gif" alt="多 Agent 协作演示" width="720" />
+</p>
 -->
 
 ---
@@ -573,6 +578,30 @@ mypy ocl/       # 类型检查
 | [memU](https://github.com/NevaMind-AI/memU) | 分层记忆的行级 segment + 增量 embedding 设计 |
 | [OpenSandbox](https://github.com/OpenSandbox) | 隔离代码执行沙箱 |
 | [Mem0](https://github.com/mem0ai/mem0) | 语义召回层（可选） |
+
+## 加入社区
+
+遇到问题想讨论？有想法想交流？欢迎扫码：
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="assets/qq-group-qr.jpg" alt="QQ 交流群二维码" width="200" /><br />
+      <b>扫码加入交流 QQ 群</b>
+    </td>
+    <td align="center">
+      <img src="assets/wechat-qr.jpg" alt="微信二维码" width="200" /><br />
+      <b>加微信与我交流</b>
+    </td>
+  </tr>
+</table>
+
+---
+
+<p align="center">
+  <b>⭐ 如果这个项目对你有帮助，请 Star 支持一下 ⭐</b><br/>
+  <i>你的 Star 是让更多人发现这个项目的最好方式</i>
+</p>
 
 ## License
 
