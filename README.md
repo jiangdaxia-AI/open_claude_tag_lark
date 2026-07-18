@@ -25,10 +25,12 @@
 </p>
 
 <p align="center">
-  <i>如果这个项目对你有帮助，请点个 ⭐ Star 支持一下 —— 这是我们持续迭代的最大动力</i>
+  <code>agent-memory</code> · <code>feishu-bot</code> · <code>multi-agent</code> · <code>ai-agents</code> · <code>mcp</code> · <code>llm</code> · <code>claude</code> · <code>lark</code> · <code>self-hosted</code> · <code>python</code>
 </p>
 
----
+<p align="center">
+  <i>如果这个项目对你有帮助，请点个 ⭐ Star 支持一下 —— 这是我们持续迭代的最大动力</i>
+</p>
 
 <!-- 🎬 DEMO GIF：录好后取消下面这段的注释，并把文件放到 assets/demo.gif。
      录制内容（20-30 秒，最能打动人的流程）：
@@ -578,30 +580,6 @@ mypy ocl/       # 类型检查
 | [memU](https://github.com/NevaMind-AI/memU) | 分层记忆的行级 segment + 增量 embedding 设计 |
 | [OpenSandbox](https://github.com/OpenSandbox) | 隔离代码执行沙箱 |
 | [Mem0](https://github.com/mem0ai/mem0) | 语义召回层（可选） |
-
-## 加入社区
-
-遇到问题想讨论？有想法想交流？欢迎扫码：
-
-<table align="center">
-  <tr>
-    <td align="center">
-      <img src="assets/qq-group-qr.jpg" alt="QQ 交流群二维码" width="200" /><br />
-      <b>扫码加入交流 QQ 群</b>
-    </td>
-    <td align="center">
-      <img src="assets/wechat-qr.jpg" alt="微信二维码" width="200" /><br />
-      <b>加微信与我交流</b>
-    </td>
-  </tr>
-</table>
-
----
-
-<p align="center">
-  <b>⭐ 如果这个项目对你有帮助，请 Star 支持一下 ⭐</b><br/>
-  <i>你的 Star 是让更多人发现这个项目的最好方式</i>
-</p>
 
 ## License
 

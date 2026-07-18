@@ -26,10 +26,12 @@
 </p>
 
 <p align="center">
-  <i>If this project helps you, a ⭐ Star means a lot — it keeps us iterating.</i>
+  <code>agent-memory</code> · <code>feishu-bot</code> · <code>multi-agent</code> · <code>ai-agents</code> · <code>mcp</code> · <code>llm</code> · <code>claude</code> · <code>lark</code> · <code>self-hosted</code> · <code>python</code>
 </p>
 
----
+<p align="center">
+  <i>If this project helps you, a ⭐ Star means a lot — it keeps us iterating.</i>
+</p>
 
 <!-- 🎬 DEMO GIF: record a 20-30s clip of the multi-agent flow in a Feishu group,
      save it to assets/demo.gif and uncomment the block below.
