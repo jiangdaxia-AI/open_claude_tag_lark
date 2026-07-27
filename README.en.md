@@ -486,9 +486,11 @@ ocl/
     delegation.py     <- delegation: task chains, @mentions, downstream wake
     context_manager.py<- long-context compression (LLM summary over threshold)
     checkpoint.py     <- execution checkpoints (auto-resume after restart)
+    subagent.py       <- isolated sub-agent (independent context, tool allowlist, anti-recursion)
   agent/
     loop.py           <- ReAct main loop, streaming, checkpoints, memory recall
     context.py        <- system prompt assembly (multi-agent attribution)
+    skills.py         <- auto skill generation & evaluation
   agents/
     config.py         <- agents.toml parsing, scopes, workspace
     task_store.py     <- task board (dep chains, session filter, active-only default)
@@ -506,11 +508,21 @@ ocl/
     sandbox/          <- OpenSandbox integration (provider/tools/lifecycle)
     orchestration.py  <- orchestration tool schemas + handler
     capability.py     <- capability discovery tools
+    mcp_client.py     <- MCP protocol client
+    mcp_config.py     <- MCP config parsing
+  config_service.py   <- config service layer (MCP/Skill CRUD, 3-tier merge, snapshots, hot-reload)
+  console/            <- CLI management commands
+    config_cmd.py     <- python -m ocl config
+    mcp_cmd.py        <- python -m ocl mcp
+    skill_cmd.py      <- python -m ocl skill
+  file_cache.py       <- mtime-based file read cache (eliminates hot-path disk IO)
   ambient/
     heartbeat.py      <- proactive patrol
   llm.py              <- LiteLLM wrapper, streaming, gateway routing
   web_admin.py        <- FastAPI console backend
+  web_admin_config.py <- Web admin MCP/Skill/config history API
   web_admin_frontend.html <- React SPA (with zh/en i18n)
+  static/             <- frontend static assets (compiled JS)
   doctor.py           <- health check
   cli.py              <- entry: open-claude-tag-lark / open-claude-tag-lark doctor
   config.py           <- .env config loading

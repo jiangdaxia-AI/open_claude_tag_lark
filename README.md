@@ -484,9 +484,11 @@ ocl/
     delegation.py     ← 委派：任务链创建、@mention、下游唤醒
     context_manager.py← 长上下文压缩（超阈值时 LLM 摘要）
     checkpoint.py     ← 执行检查点（进程重启自动恢复）
+    subagent.py       ← 隔离子代理（独立上下文，工具白名单，防递归）
   agent/
     loop.py           ← ReAct 主循环、流式输出、检查点、记忆检索注入
     context.py        ← 系统提示词组装（含多 agent 消息归属）
+    skills.py         ← 技能自动生成与评估
   agents/
     config.py         ← agents.toml 解析、scopes、workspace
     task_store.py     ← 任务板（依赖链、session 过滤、活跃任务过滤）
@@ -503,11 +505,21 @@ ocl/
     sandbox/          ← OpenSandbox 沙箱（provider/tools/lifecycle）
     orchestration.py  ← 编排工具 schema + handler
     capability.py     ← 能力发现工具
+    mcp_client.py     ← MCP 协议客户端
+    mcp_config.py     ← MCP 配置解析
+  config_service.py   ← 配置服务层（MCP/Skill CRUD、三级合并、版本快照、热重载）
+  console/            ← CLI 管理命令
+    config_cmd.py     ← python -m ocl config
+    mcp_cmd.py        ← python -m ocl mcp
+    skill_cmd.py      ← python -m ocl skill
+  file_cache.py       ← mtime 文件读缓存（消除热路径重复 IO）
   ambient/
     heartbeat.py      ← 主动巡检
   llm.py              ← LiteLLM 封装、流式、网关路由
   web_admin.py        ← FastAPI 控制台后端
+  web_admin_config.py ← Web 管理后台 MCP/Skill/配置历史 API
   web_admin_frontend.html ← React SPA（含中英 i18n）
+  static/             ← 前端静态资源（编译后 JS）
   doctor.py           ← 健康检查
   cli.py              ← 入口：open-claude-tag-lark / open-claude-tag-lark doctor
   config.py           ← .env 配置加载

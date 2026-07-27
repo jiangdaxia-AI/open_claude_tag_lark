@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "open-claude-tag-lark"
 version = "0.1.0"
-description = "Self-hostable channel-native AI teammate for Slack"
+description = "Self-hostable channel-native AI teammate for Feishu / Lark"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
